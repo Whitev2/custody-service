@@ -17,16 +17,12 @@ async def create_transaction(
     tx: TransactionDetailsSchema,
     raw_body: str,
 ) -> WebhookProcessResultSchema:
-    """Create new transaction record."""
     log.info(f"📝 Creating transaction record: tx_id={tx.id}")
 
-    # Identify wallet (vault_id, wallet_id, asset_id)
     wallet_info = await identify_wallet(db, tx)
 
-    # Parse amount
     amount = parse_amount(tx)
 
-    # Create transaction record in DB
     transaction = TransactionModel(
         provider_tx_id=tx.id,
         tx_hash=tx.txHash,
