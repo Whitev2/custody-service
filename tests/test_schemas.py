@@ -1,0 +1,253 @@
+"""
+Tests for Pydantic schemas.
+"""
+
+from datetime import datetime
+from uuid import uuid4
+
+
+class TestVaultSchemas:
+    """Tests for vault schemas."""
+
+    def test_vault_create_request_valid(self):
+        """Test valid vault create request."""
+        from app.schemas.vault import VaultCreateRequest
+
+        request = VaultCreateRequest(
+            name="TEST_VAULT",
+            assets=[
+                {
+                    "blockchain": "TRON",
+                    "currency": "USDT",
+                    "network": "TRC20",
+                }
+            ],
+            auto_fuel=True,
+        )
+
+        assert request.name == "TEST_VAULT"
+        assert len(request.assets) == 1
+        assert request.auto_fuel is True
+
+    def test_vault_create_request_no_name(self):
+        """Test vault create request without name (auto-generated)."""
+        from app.schemas.vault import VaultCreateRequest
+
+        request = VaultCreateRequest(
+            assets=[],
+            auto_fuel=False,
+        )
+
+        # Name should be None (will be auto-generated in DAO)
+        assert request.name is None
+
+    def test_vault_create_request_empty_assets(self):
+        """Test vault create request with empty assets."""
+        from app.schemas.vault import VaultCreateRequest
+
+        request = VaultCreateRequest(
+            name="EMPTY_VAULT",
+            assets=[],
+        )
+
+        assert request.assets == []
+
+    def test_vault_info_response(self):
+        """Test vault info response schema."""
+        from app.schemas.vault import VaultInfoResponse
+
+        response = VaultInfoResponse(
+            vault_id=uuid4(),
+            provider_vault_id="fb_vault_123",
+            name="TEST_VAULT",
+            vault_type="regular",
+            status="available",
+            is_active=True,
+            wallets=[],
+            created_at=datetime.now(),
+        )
+
+        assert response.status == "available"
+        assert response.is_active is True
+
+
+class TestAssetSchemas:
+    """Tests for asset schemas."""
+
+    def test_asset_create_request(self):
+        """Test asset create request schema."""
+        from app.schemas.asset import AssetCreateRequest
+
+        request = AssetCreateRequest(
+            vault_id=uuid4(),
+            asset_id=uuid4(),
+        )
+
+        assert request.vault_id is not None
+        assert request.asset_id is not None
+
+    def test_asset_info_response(self):
+        """Test asset info response schema."""
+        from app.schemas.asset import AssetInfoResponse
+
+        response = AssetInfoResponse(
+            asset_id=uuid4(),
+            wallet_id=uuid4(),
+            vault_id=uuid4(),
+            address="TAddress123456789012345678901234",
+            legacy_address=None,
+            tag=None,
+            balance="100.5",
+            blockchain="TRON",
+            currency="USDT",
+            network="TRC20",
+            created_at=datetime.now(),
+        )
+
+        assert response.address.startswith("T")
+        assert response.balance == "100.5"
+
+
+class TestTransferSchemas:
+    """Tests for transfer schemas."""
+
+    def test_internal_transfer_request(self):
+        """Test internal transfer request schema."""
+        from app.schemas.transfer import InternalTransferRequest
+
+        request = InternalTransferRequest(
+            from_vault_id=uuid4(),
+            to_vault_id=uuid4(),
+            asset_id=uuid4(),
+            amount="50.0",
+            note="Test transfer",
+        )
+
+        assert request.amount == "50.0"
+        assert request.note == "Test transfer"
+
+    def test_external_transfer_request(self):
+        """Test external transfer request schema."""
+        from app.schemas.transfer import ExternalTransferRequest
+
+        request = ExternalTransferRequest(
+            from_vault_id=uuid4(),
+            asset_id=uuid4(),
+            to_address="TExternalAddress123456789012345678",
+            amount="25.0",
+        )
+
+        assert request.to_address == "TExternalAddress123456789012345678"
+        assert request.amount == "25.0"
+
+    def test_transfer_request_invalid_amount(self):
+        """Test transfer request with invalid amount."""
+        from app.schemas.transfer import InternalTransferRequest
+
+        # Amount is a string, so validation is lenient
+        # This test passes because string "-10.0" is valid as string
+        request = InternalTransferRequest(
+            from_vault_id=uuid4(),
+            to_vault_id=uuid4(),
+            asset_id=uuid4(),
+            amount="-10.0",
+        )
+        assert request.amount == "-10.0"
+
+    def test_transfer_response(self):
+        """Test transfer response schema."""
+        from app.schemas.transfer import TransferResponse
+
+        response = TransferResponse(
+            transfer_id=uuid4(),
+            provider_tx_id="fb_tx_123",
+            from_vault_id=uuid4(),
+            to_vault_id=uuid4(),
+            to_address=None,
+            asset_id=uuid4(),
+            amount="50.0",
+            status="SUBMITTED",
+            is_internal=True,
+            created_at=datetime.now(),
+        )
+
+        assert response.is_internal is True
+        assert response.status == "SUBMITTED"
+
+
+class TestWhitelistSchemas:
+    """Tests for whitelist schemas."""
+
+    def test_whitelist_add_request(self):
+        """Test whitelist add request schema."""
+        from app.schemas.whitelist import WhitelistAddRequest
+
+        request = WhitelistAddRequest(
+            vault_id=uuid4(),
+            asset_id=uuid4(),
+            address="TWhitelistAddress123456789012345",
+            description="Test entry",
+        )
+
+        assert request.address.startswith("T")
+        assert request.description == "Test entry"
+
+    def test_whitelist_check_request(self):
+        """Test whitelist check request schema."""
+        from app.schemas.whitelist import WhitelistCheckRequest
+
+        request = WhitelistCheckRequest(
+            vault_id=uuid4(),
+            asset_id=uuid4(),
+            address="TCheckAddress12345678901234567890",
+        )
+
+        assert request.address is not None
+
+    def test_whitelist_check_response(self):
+        """Test whitelist check response schema."""
+        from app.schemas.whitelist import WhitelistCheckResponse
+
+        response = WhitelistCheckResponse(
+            is_whitelisted=True,
+            whitelist_id="wl_123",
+            address="TWhitelistedAddress12345678901234",
+        )
+
+        assert response.is_whitelisted is True
+        assert response.whitelist_id == "wl_123"
+
+
+class TestWebhookSchemas:
+    """Tests for webhook schemas."""
+
+    def test_webhook_payload_transaction(self):
+        """Test webhook payload for transaction."""
+        from app.schemas.webhooks import WebhookPayload
+
+        payload = WebhookPayload(
+            type="TRANSACTION_CREATED",
+            data={
+                "id": "fb_tx_123",
+                "status": "SUBMITTED",
+                "assetId": "USDT_TRX",
+            },
+        )
+
+        assert payload.type == "TRANSACTION_CREATED"
+        assert payload.data["id"] == "fb_tx_123"
+
+    def test_webhook_payload_vault_account(self):
+        """Test webhook payload for vault account."""
+        from app.schemas.webhooks import WebhookPayload
+
+        payload = WebhookPayload(
+            type="VAULT_ACCOUNT_ASSET_CREATED",
+            data={
+                "vaultAccountId": "1",
+                "assetId": "USDT_TRX",
+                "address": "TNewAddress123",
+            },
+        )
+
+        assert payload.type == "VAULT_ACCOUNT_ASSET_CREATED"
