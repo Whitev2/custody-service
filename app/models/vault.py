@@ -19,17 +19,7 @@ if TYPE_CHECKING:
 
 
 class VaultModel(Base):
-    """
-    Vault model with treasury management support.
-
-    Supports different wallet types:
-    - HOT: For instant user withdrawals (5-10% of funds)
-    - WARM: Intermediate buffer, auto-refills HOT (20-30%)
-    - COLD: Long-term storage, manual transfers only (60-70%)
-    - MERCHANT_POOL: Deposit addresses for merchant invoices
-    - USER: Personal user vaults
-    - OPERATIONAL: Gas and fee payments
-    """
+    """Vault с поддержкой treasury (hot/warm/cold и т.д.)."""
 
     __tablename__ = "vaults"
 
@@ -41,7 +31,6 @@ class VaultModel(Base):
     )
     name: Mapped[str] = mapped_column(String(255), comment="Vault name")
 
-    # Vault type for treasury management
     vault_type: Mapped[str] = mapped_column(
         String(50),
         default=VaultTypeEnum.REGULAR.value,
@@ -49,7 +38,6 @@ class VaultModel(Base):
         comment="Тип vault: hot, warm, cold, regular, operational",
     )
 
-    # Treasury settings
     is_primary: Mapped[bool] = mapped_column(
         Boolean,
         default=False,
@@ -67,7 +55,7 @@ class VaultModel(Base):
         nullable=True, comment="Целевой % от общего баланса (для rebalancing)"
     )
 
-    # Auto-refill settings (for HOT wallet)
+    # для HOT кошелька
     auto_refill_enabled: Mapped[bool] = mapped_column(
         Boolean, default=False, comment="Включен ли auto-refill из WARM"
     )
@@ -78,7 +66,6 @@ class VaultModel(Base):
         nullable=True, comment="Целевой % после auto-refill"
     )
 
-    # Status
     status: Mapped[str] = mapped_column(
         String(50),
         default=VaultStatusEnum.CREATING.value,
@@ -88,7 +75,6 @@ class VaultModel(Base):
         Boolean, default=True, comment="Is vault active"
     )
 
-    # Audit
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), comment="Created at"
     )
@@ -99,12 +85,10 @@ class VaultModel(Base):
         comment="Updated at",
     )
 
-    # Description for admin
     description: Mapped[str | None] = mapped_column(
         String(500), nullable=True, comment="Описание vault'а для админки"
     )
 
-    # Relationships
     wallets: Mapped[list["WalletModel"]] = relationship(
         "WalletModel", back_populates="vault", cascade="all, delete-orphan"
     )
@@ -119,7 +103,6 @@ class VaultModel(Base):
 
     @property
     def is_treasury_vault(self) -> bool:
-        """Is this a treasury vault (HOT/WARM/COLD)."""
         return self.vault_type in (
             VaultTypeEnum.HOT.value,
             VaultTypeEnum.WARM.value,
@@ -128,7 +111,6 @@ class VaultModel(Base):
 
     @property
     def requires_approval(self) -> bool:
-        """Does this vault require approval for outgoing transfers."""
         return self.vault_type in (VaultTypeEnum.WARM.value, VaultTypeEnum.COLD.value)
 
     def __repr__(self) -> str:

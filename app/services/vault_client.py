@@ -15,26 +15,11 @@ log = logging.getLogger("app")
 
 class VaultClient:
     """
-    Vault client для чтения секретов через Kubernetes Auth
-
-    Структура секретов (mount и базовый путь настраиваются через env):
-    - {VAULT_KV_MOUNT}/{VAULT_SECRET_BASE}/{env}/redis - общий Redis для окружения
-    - {VAULT_KV_MOUNT}/{VAULT_SECRET_BASE}/{env}/rabbitmq - общий RabbitMQ для окружения
-    - {VAULT_KV_MOUNT}/{VAULT_SECRET_BASE}/{env}/database - централизованные названия БД
-    - {VAULT_KV_MOUNT}/{VAULT_SECRET_BASE}/{env}/custody - секреты custody
-
-    Пример использования:
-        vault_client = VaultClient()
-        db_secrets = vault_client.get_secret("database")
-        redis_secrets = vault_client.get_secret("redis")
+    Чтение секретов из Vault через Kubernetes Auth.
+    Путь: {VAULT_KV_MOUNT}/{VAULT_SECRET_BASE}/{env}/<path>, mount/base из env.
     """
 
     def __init__(self):
-        """
-        Инициализация VaultClient.
-
-        Кэш секретов: TTL=3600s (1 час), max 100 записей
-        """
         self.client: hvac.Client | None = None
         self._environment: str | None = None
         # KV v2 mount и базовый путь для секретов (генерик по умолчанию, настраивается через env)
@@ -59,7 +44,6 @@ class VaultClient:
         self._initialize()
 
     def _initialize(self):
-        """Инициализация Vault client"""
         vault_addr = os.getenv("VAULT_ADDR", "")
         stand = os.getenv("STAND", "local")
 
@@ -168,15 +152,7 @@ class VaultClient:
         }
 
     def is_token_expiring_soon(self, threshold_seconds: int = 300) -> bool:
-        """
-        Проверить, истекает ли токен Vault в ближайшее время.
-
-        Args:
-            threshold_seconds: Порог в секундах (по умолчанию 5 минут)
-
-        Returns:
-            True если токен истекает в течение threshold_seconds
-        """
+        """Истекает ли токен в ближайшие threshold_seconds."""
         if not self._token_expires_at:
             return True  # Нет информации о токене — считаем, что нужно обновить
 
@@ -188,13 +164,7 @@ class VaultClient:
         check_interval: int = 300,
         refresh_threshold: int = 600,
     ):
-        """
-        Запустить фоновую задачу проактивного обновления токена Vault.
-
-        Args:
-            check_interval: Интервал проверки в секундах (по умолчанию 5 минут)
-            refresh_threshold: Порог до истечения, при котором обновляем (по умолчанию 10 минут)
-        """
+        """Фоновая задача проактивного обновления токена Vault."""
         stand = os.getenv("STAND", "local")
         if stand == "local":
             log.info("⚠️ STAND=local, фоновое обновление Vault токена не требуется")
@@ -292,36 +262,14 @@ class VaultClient:
 
     def get_secret(self, path: str) -> dict:
         """
-        Получить секрет из KV Secrets (с TTL кэшированием)
-
-        Кэш: TTL=3600s (1 час), автоматическое вытеснение устаревших записей
-
-        Args:
-            path: Путь относительно {VAULT_SECRET_BASE}/{env}/
-                  Примеры (при VAULT_KV_MOUNT=kv, VAULT_SECRET_BASE=custody):
-                  - "redis" → читает kv/custody/dev/redis
-                  - "rabbitmq" → читает kv/custody/dev/rabbitmq
-                  - "custody" → читает kv/custody/dev/custody
-                  - "database" → читает kv/custody/dev/database
-
-        Returns:
-            dict: Секреты
-
-        Example:
-            # Общие секреты окружения
-            redis_secrets = vault_client.get_secret("redis")
-            # {'host': '<redis-host>', 'port': '6379', 'password': '...'}
-
-            # Секреты custody
-            custody_secrets = vault_client.get_secret("custody")
-            # {'JWT_SECRET_KEY': '...', ...}
+        Секрет из KV v2 с TTL-кэшем (1ч).
+        path - относительно {VAULT_SECRET_BASE}/{env}/, напр. "redis", "database".
         """
         if not self.client:
             raise RuntimeError(
                 "Vault client not initialized. Check STAND and VAULT_ADDR environment variables."
             )
 
-        # Проверяем TTL кэш (автоматически удаляет устаревшие записи)
         if path in self._secret_cache:
             log.debug(f"🔄 Vault: using cached secret for '{path}' (TTL cache)")
             return self._secret_cache[path]
@@ -334,7 +282,6 @@ class VaultClient:
             )
             secret_data = response["data"]["data"]
 
-            # Кэшируем секрет с TTL=3600s
             self._secret_cache[path] = secret_data
 
             log.info(f"✅ Vault: read secret from {full_path} (cached for 1h)")

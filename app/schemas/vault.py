@@ -1,5 +1,3 @@
-"""Vault schemas for API."""
-
 from datetime import datetime
 from decimal import Decimal
 from enum import Enum
@@ -11,8 +9,6 @@ from app.enums.status import VaultStatusEnum
 
 
 class VaultTypeEnum(str, Enum):
-    """Vault type enum for API."""
-
     HOT = "hot"
     WARM = "warm"
     COLD = "cold"
@@ -21,8 +17,6 @@ class VaultTypeEnum(str, Enum):
 
 
 class VaultCreateRequest(BaseModel):
-    """Request to create vault."""
-
     name: str | None = Field(
         None, description="Vault name (auto-generated if not provided)"
     )
@@ -37,8 +31,6 @@ class VaultCreateRequest(BaseModel):
 
 
 class TreasuryAssetRequest(BaseModel):
-    """Asset request in {blockchain, contract_address} format."""
-
     blockchain: str = Field(
         ..., description="Блокчейн (ETHEREUM, TRON, BSC, BITCOIN)"
     )
@@ -48,8 +40,6 @@ class TreasuryAssetRequest(BaseModel):
 
 
 class TreasuryVaultCreateRequest(BaseModel):
-    """Request to create a treasury vault (HOT/WARM/COLD/OPERATIONAL)."""
-
     name: str = Field(..., description="Vault name")
     vault_type: VaultTypeEnum = Field(..., description="Тип: hot, warm, cold, operational")
     assets: list[TreasuryAssetRequest] = Field(
@@ -85,8 +75,6 @@ class TreasuryVaultCreateRequest(BaseModel):
 
 
 class TreasuryVaultUpdateRequest(BaseModel):
-    """Request to update treasury vault settings."""
-
     min_balance_usd: Decimal | None = None
     max_balance_usd: Decimal | None = None
     target_balance_percent: int | None = None
@@ -98,16 +86,12 @@ class TreasuryVaultUpdateRequest(BaseModel):
 
 
 class AssetInfo(BaseModel):
-    """Asset information."""
-
     blockchain: str
     currency: str
     network: str
 
 
 class WalletInfo(BaseModel):
-    """Wallet information for vault response."""
-
     wallet_id: UUID
     asset_id: UUID
     blockchain: str
@@ -119,8 +103,6 @@ class WalletInfo(BaseModel):
 
 
 class WalletBalanceInfo(BaseModel):
-    """Wallet with balance information."""
-
     wallet_id: UUID
     asset_id: UUID
     blockchain: str
@@ -132,8 +114,6 @@ class WalletBalanceInfo(BaseModel):
 
 
 class VaultCreateResponse(BaseModel):
-    """Response after vault creation."""
-
     vault_id: UUID
     provider_vault_id: str
     name: str
@@ -146,8 +126,6 @@ class VaultCreateResponse(BaseModel):
 
 
 class VaultInfoResponse(BaseModel):
-    """Vault information response."""
-
     vault_id: UUID
     provider_vault_id: str
     name: str
@@ -162,8 +140,6 @@ class VaultInfoResponse(BaseModel):
 
 
 class TreasuryVaultResponse(BaseModel):
-    """Treasury vault detailed response."""
-
     vault_id: UUID
     provider_vault_id: str
     name: str
@@ -195,15 +171,11 @@ class TreasuryVaultResponse(BaseModel):
 
 
 class VaultListResponse(BaseModel):
-    """Vault list response."""
-
     vaults: list[VaultInfoResponse]
     total: int
 
 
 class TreasuryBalanceSummary(BaseModel):
-    """Balance summary for a vault type."""
-
     vault_type: str
     vault_count: int
     total_balance_usd: Decimal
@@ -213,8 +185,6 @@ class TreasuryBalanceSummary(BaseModel):
 
 
 class TreasuryOverviewResponse(BaseModel):
-    """Treasury overview with all wallet types."""
-
     total_balance_usd: Decimal
     hot: TreasuryBalanceSummary | None = None
     warm: TreasuryBalanceSummary | None = None
@@ -228,8 +198,6 @@ class TreasuryOverviewResponse(BaseModel):
 
 
 class AssetBalanceResponse(BaseModel):
-    """Asset balance across all vault types."""
-
     blockchain: str
     currency: str
     network: str
@@ -246,8 +214,6 @@ class AssetBalanceResponse(BaseModel):
 
 
 class RebalanceRequest(BaseModel):
-    """Request to rebalance between wallets."""
-
     source_vault_id: UUID = Field(..., description="Source vault ID")
     destination_vault_id: UUID = Field(..., description="Destination vault ID")
     asset_id: UUID = Field(..., description="Asset to transfer")
@@ -256,8 +222,6 @@ class RebalanceRequest(BaseModel):
 
 
 class RebalanceResponse(BaseModel):
-    """Response after rebalance request."""
-
     transfer_id: UUID
     status: str  # pending_approval, approved, processing
     source_vault: str

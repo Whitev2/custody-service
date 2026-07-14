@@ -38,42 +38,16 @@ class TransferNotFoundError(Exception):
     pass
 
 
-# ============================================================================
-# Balance Reservation Functions
-# ============================================================================
-
-
 async def select_and_reserve_hot_wallet(
     db: AsyncSession,
     contract_address: str | None,
     blockchain: str,
     amount: Decimal,
 ) -> tuple[WalletModel, VaultModel, AssetModel]:
-    """
-    Atomically select HOT wallet AND reserve balance in one SQL query.
-
-    This is safe for concurrent access from multiple pods - PostgreSQL
-    serializes concurrent UPDATEs on the same row automatically.
-
-    Args:
-        db: Database session
-        contract_address: Token contract address (None for native tokens)
-        blockchain: Blockchain name (ETHEREUM, TRON, BSC)
-        amount: Required amount
-
-    Returns:
-        Tuple of (wallet, vault, asset)
-
-    Raises:
-        NoHotWalletError: No HOT wallet found for this asset
-        InsufficientBalanceError: HOT wallet balance too low
-    """
+    # Атомарно выбираем HOT-кошелёк и резервируем баланс одним UPDATE -
+    # PostgreSQL сам сериализует конкурентные UPDATE по строке (safe для нескольких подов).
     asset_desc = contract_address or f"native on {blockchain}"
 
-    # Single atomic UPDATE that selects best wallet and reserves balance
-    # PostgreSQL handles concurrent access automatically
-    # Note: blockchain comparison is case-insensitive (UPPER)
-    # Note: COALESCE handles NULL pending_amount/balance
     sql = text(
         """
         UPDATE wallets w
@@ -119,7 +93,7 @@ async def select_and_reserve_hot_wallet(
     row = result.fetchone()
 
     if row is None:
-        # Check why: no wallet exists or insufficient balance?
+        # разбираемся: кошелька нет или баланса не хватает?
         check_sql = text(
             """
             SELECT w.id, w.balance, w.pending_amount, 
@@ -146,14 +120,13 @@ async def select_and_reserve_hot_wallet(
         )
         check_row = check_result.fetchone()
 
-        # Debug logging
         log.debug(
             f"HOT wallet check: blockchain={blockchain}, contract={contract_address}, "
             f"vault_type={VaultTypeEnum.HOT.value}"
         )
 
         if check_row is None:
-            # Additional debug - check without contract_address filter
+            # debug без фильтра по contract_address
             debug_sql = text(
                 """
                 SELECT a.blockchain, a.contract_address, a.symbol, w.balance, 
@@ -189,7 +162,6 @@ async def select_and_reserve_hot_wallet(
         f"address={row.address}, reserved={amount}"
     )
 
-    # Load full ORM objects for response
     wallet = await db.get(
         WalletModel,
         row.id,
@@ -204,12 +176,7 @@ async def reserve_balance(
     wallet_id: UUID,
     amount: Decimal,
 ) -> bool:
-    """
-    Reserve additional balance on wallet.
-
-    Note: For new transfers, use select_and_reserve_hot_wallet() instead.
-    This is kept for edge cases.
-    """
+    # Для новых трансферов используй select_and_reserve_hot_wallet(); это для edge-кейсов.
     stmt = (
         update(WalletModel)
         .where(
@@ -236,9 +203,7 @@ async def release_reserve(
     wallet_id: UUID,
     amount: Decimal,
 ) -> bool:
-    """
-    Release reserved balance (on reject/cancel).
-    """
+    """Освободить резерв (на reject/cancel)."""
     stmt = (
         update(WalletModel)
         .where(
@@ -265,11 +230,7 @@ async def complete_transfer_balance(
     wallet_id: UUID,
     amount: Decimal,
 ) -> bool:
-    """
-    Complete transfer: release reserve and deduct from balance.
-
-    Called when transaction is confirmed on blockchain.
-    """
+    """Завершить трансфер: снять резерв и списать с баланса (при подтверждении в блокчейне)."""
     stmt = (
         update(WalletModel)
         .where(
@@ -295,11 +256,6 @@ async def complete_transfer_balance(
     return False
 
 
-# ============================================================================
-# Transfer CRUD Functions
-# ============================================================================
-
-
 async def create_transfer(
     db: AsyncSession,
     request_id: str,
@@ -312,21 +268,15 @@ async def create_transfer(
     is_internal: bool = False,
     destination_tag: str | None = None,
     note: str | None = None,
-    # For internal transfers with known source
+    # для internal с известным источником
     vault_id: UUID | None = None,
     wallet_id: UUID | None = None,
     asset_id: UUID | None = None,
     source_address: str | None = None,
     to_vault_id: UUID | None = None,
-    # Initial status
     status: TransferStatus = TransferStatus.PENDING_APPROVAL,
 ) -> TransferModel:
-    """
-    Create a new transfer record.
-
-    For external transfers: starts with PENDING_APPROVAL
-    For internal transfers: starts with PENDING (balance already reserved)
-    """
+    # external стартует с PENDING_APPROVAL, internal - с PENDING (баланс уже зарезервирован).
     transfer = TransferModel(
         id=uuid4(),
         request_id=request_id,
@@ -363,7 +313,6 @@ async def get_transfer_by_request_id(
     db: AsyncSession,
     request_id: str,
 ) -> TransferModel | None:
-    """Get transfer by request_id with relationships loaded."""
     stmt = (
         select(TransferModel)
         .where(TransferModel.request_id == request_id)
@@ -382,7 +331,6 @@ async def get_transfer_by_id(
     db: AsyncSession,
     transfer_id: UUID,
 ) -> TransferModel | None:
-    """Get transfer by ID with relationships loaded."""
     stmt = (
         select(TransferModel)
         .where(TransferModel.id == transfer_id)
@@ -405,9 +353,6 @@ async def update_transfer_status(
     tx_hash: str | None = None,
     error_message: str | None = None,
 ) -> TransferModel | None:
-    """
-    Update transfer status and related fields.
-    """
     transfer = await get_transfer_by_request_id(db, request_id)
     if not transfer:
         return None
@@ -421,7 +366,6 @@ async def update_transfer_status(
     if error_message:
         transfer.error_message = error_message
 
-    # Update timestamps based on status
     now = datetime.now(timezone.utc)
     if status in (
         TransferStatus.COMPLETED,
@@ -444,9 +388,6 @@ async def update_transfer_with_wallet(
     vault: VaultModel,
     asset: AssetModel,
 ) -> TransferModel:
-    """
-    Update transfer with selected wallet info after balance reservation.
-    """
     transfer.vault_id = vault.id
     transfer.wallet_id = wallet.id
     transfer.asset_id = asset.id
@@ -464,18 +405,11 @@ async def update_transfer_with_wallet(
     return transfer
 
 
-# ============================================================================
-# Pending Balance Queue Functions
-# ============================================================================
-
-
 async def get_pending_balance_transfers(
     db: AsyncSession,
     limit: int = 100,
 ) -> list[TransferModel]:
-    """
-    Get transfers waiting for balance, ordered by creation time (FIFO).
-    """
+    """Трансферы, ждущие баланс, в порядке создания (FIFO)."""
     stmt = (
         select(TransferModel)
         .where(TransferModel.status == TransferStatus.PENDING_BALANCE.value)
@@ -491,12 +425,7 @@ async def get_pending_balance_transfers_grouped(
     db: AsyncSession,
     limit_per_group: int = 50,
 ) -> dict[tuple[str | None, str], list[TransferModel]]:
-    """
-    Get pending_balance transfers grouped by (contract_address, blockchain).
-    FIFO order within each group.
-
-    Returns: {(contract_address, blockchain): [transfer1, transfer2, ...]}
-    """
+    """pending_balance трансферы, сгруппированные по (contract_address, blockchain), FIFO внутри группы."""
     stmt = (
         select(TransferModel)
         .where(TransferModel.status == TransferStatus.PENDING_BALANCE.value)
@@ -506,7 +435,6 @@ async def get_pending_balance_transfers_grouped(
     result = await db.execute(stmt)
     transfers = list(result.scalars().all())
 
-    # Group by (contract_address, blockchain)
     grouped: dict[tuple[str | None, str], list[TransferModel]] = {}
     for transfer in transfers:
         key = (transfer.contract_address, transfer.blockchain)
@@ -521,11 +449,7 @@ async def get_pending_balance_transfers_grouped(
 async def get_hot_wallets_available_balance(
     db: AsyncSession,
 ) -> dict[tuple[str | None, str], Decimal]:
-    """
-    Get available balance for all HOT wallets, grouped by (contract_address, blockchain).
-
-    Returns: {(contract_address, blockchain): total_available_balance}
-    """
+    """Доступный баланс всех HOT-кошельков, сгруппированный по (contract_address, blockchain)."""
     sql = text(
         """
         SELECT 
@@ -555,14 +479,8 @@ async def process_pending_balance_transfer(
     db: AsyncSession,
     transfer: TransferModel,
 ) -> bool:
-    """
-    Try to process a pending_balance transfer.
-
-    Returns True if successfully reserved balance and ready for signing.
-    Returns False if still insufficient balance.
-    """
+    # True - баланс зарезервирован, готов к подписи; False - всё ещё не хватает.
     try:
-        # Try to reserve balance atomically
         wallet, vault, asset = await select_and_reserve_hot_wallet(
             db=db,
             contract_address=transfer.contract_address,
@@ -570,7 +488,6 @@ async def process_pending_balance_transfer(
             amount=transfer.amount,
         )
 
-        # Success! Update transfer with wallet info
         await update_transfer_with_wallet(db, transfer, wallet, vault, asset)
 
         log.info(
@@ -581,7 +498,6 @@ async def process_pending_balance_transfer(
         return True
 
     except (InsufficientBalanceError, NoHotWalletError) as e:
-        # Still no balance - increment retry count
         transfer.retry_count += 1
         await db.flush()
 
@@ -594,10 +510,6 @@ async def process_pending_balance_transfer(
 
 
 async def get_pending_balance_queue_stats(db: AsyncSession) -> dict:
-    """
-    Get statistics for pending_balance queue.
-    """
-
     stmt = select(
         func.count(TransferModel.id).label("count"),
         func.sum(TransferModel.amount).label("total_amount"),
@@ -614,26 +526,15 @@ async def get_pending_balance_queue_stats(db: AsyncSession) -> dict:
     }
 
 
-# ============================================================================
-# Cancel Functions
-# ============================================================================
-
-
 async def cancel_transfer(
     db: AsyncSession,
     transfer: TransferModel,
     reason: str,
 ) -> TransferModel:
-    """
-    Cancel a transfer (only pending_approval, pending_balance or pending).
-
-    If transfer has reserved balance, releases it.
-    Notifies backend about cancellation for external transfers.
-    """
+    # Только pending_approval/pending_balance/pending; резерв освобождается, backend уведомляется.
     if not transfer.is_cancellable:
         raise ValueError(f"Cannot cancel transfer in status {transfer.status}")
 
-    # Release reserve if balance was reserved
     if transfer.status == TransferStatus.PENDING.value and transfer.wallet_id:
         await release_reserve(db, transfer.wallet_id, transfer.amount)
 

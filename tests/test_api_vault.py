@@ -1,7 +1,3 @@
-"""
-Tests for Vault API endpoints.
-"""
-
 import pytest
 from uuid import uuid4
 from unittest.mock import patch, AsyncMock
@@ -12,14 +8,11 @@ from app.models import VaultModel, AssetModel
 
 
 class TestVaultAPI:
-    """Tests for /vault endpoints."""
 
     @pytest.mark.asyncio
     async def test_create_vault_success(
         self, client: AsyncClient, test_asset: AssetModel
     ):
-        """Test successful vault creation."""
-        # Mock the provider
         mock_provider = AsyncMock()
         mock_provider.create_vault = AsyncMock(
             return_value={
@@ -64,7 +57,6 @@ class TestVaultAPI:
 
     @pytest.mark.asyncio
     async def test_create_vault_no_assets(self, client: AsyncClient):
-        """Test vault creation without assets."""
         mock_provider = AsyncMock()
         mock_provider.create_vault = AsyncMock(
             return_value={
@@ -95,7 +87,6 @@ class TestVaultAPI:
     async def test_get_vault_info_success(
         self, client: AsyncClient, test_vault: VaultModel
     ):
-        """Test getting vault info."""
         response = await client.get(f"/vault/{test_vault.id}/info")
 
         assert response.status_code == 200
@@ -106,7 +97,6 @@ class TestVaultAPI:
 
     @pytest.mark.asyncio
     async def test_get_vault_info_not_found(self, client: AsyncClient):
-        """Test getting non-existent vault."""
         fake_id = uuid4()
         response = await client.get(f"/vault/{fake_id}/info")
 
@@ -115,7 +105,6 @@ class TestVaultAPI:
 
     @pytest.mark.asyncio
     async def test_list_vaults_empty(self, client: AsyncClient):
-        """Test listing vaults when empty."""
         response = await client.get("/vault/list")
 
         assert response.status_code == 200
@@ -127,7 +116,6 @@ class TestVaultAPI:
     async def test_list_vaults_with_data(
         self, client: AsyncClient, test_vault: VaultModel
     ):
-        """Test listing vaults with data."""
         response = await client.get("/vault/list")
 
         assert response.status_code == 200
@@ -139,7 +127,6 @@ class TestVaultAPI:
     async def test_list_vaults_pagination(
         self, client: AsyncClient, test_vault: VaultModel
     ):
-        """Test listing vaults with pagination."""
         response = await client.get("/vault/list?skip=0&limit=10")
 
         assert response.status_code == 200
@@ -149,7 +136,6 @@ class TestVaultAPI:
 
     @pytest.mark.asyncio
     async def test_create_vault_auto_generated_name(self, client: AsyncClient):
-        """Test vault creation with auto-generated name."""
         mock_provider = AsyncMock()
         mock_provider.create_vault = AsyncMock(
             return_value={

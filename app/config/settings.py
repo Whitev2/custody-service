@@ -17,7 +17,6 @@ log = logging.getLogger("app")
 def load_private_key_from_file() -> str | None:
     """Load private key from file (only for local mode)."""
 
-    # 1. Try PRIVATE_KEY_FILE env var first
     key_file = getenv("PRIVATE_KEY_FILE", "")
     if key_file and os.path.exists(key_file):
         try:
@@ -26,7 +25,6 @@ def load_private_key_from_file() -> str | None:
         except Exception as e:
             logging.warning(f"Failed to load private key from file {key_file}: {e}")
 
-    # 2. Try the default local location
     default_locations = [
         "secrets/fireblocks.key",
     ]
@@ -42,25 +40,16 @@ def load_private_key_from_file() -> str | None:
             except Exception as e:
                 logging.warning(f"Failed to load private key from {loc}: {e}")
 
-    # 3. Fall back to environment variable
     key = getenv("PRIVATE_KEY", "")
-    # Handle escaped newlines
     return key.replace("\\n", "\n") if key else None
 
 
 class VaultSettings(BaseModel):
     """Настройки Vault credentials refresh"""
 
-    # Интервал проверки TTL токена Vault (в секундах)
     TOKEN_CHECK_INTERVAL: int = 5 * 60  # 5 минут
-
-    # Порог до истечения токена, при котором обновляем (в секундах)
     TOKEN_REFRESH_THRESHOLD: int = 10 * 60  # 10 минут
-
-    # Интервал проверки TTL DB credentials (в секундах)
     DB_CREDENTIALS_CHECK_INTERVAL: int = 5 * 60  # 5 минут
-
-    # Порог до истечения DB credentials, при котором обновляем (в секундах)
     DB_CREDENTIALS_REFRESH_THRESHOLD: int = 10 * 60  # 10 минут
 
 
@@ -82,15 +71,13 @@ class AppSettings(BaseModel):
 
         if stand == "local":
             logging.warning("⚠️ Запуск в режиме local")
-            # Для local читаем из файла или env
+            # local - читаем из файла или env
             self.API_KEY = getenv("API_KEY", "")
             self.PRIVATE_KEY = load_private_key_from_file() or getenv("PRIVATE_KEY", "")
         elif migrate_stand:
-            # Миграция - секреты custody не нужны
             logging.info("✅ Custody migration mode: skipping custody secrets")
         else:
-            # Dev/Prod - читаем из Vault
-            # {VAULT_KV_MOUNT}/{VAULT_SECRET_BASE}/{stand}/custody
+            # dev/prod - читаем из Vault
             try:
                 from app.services.vault_client import vault_client
 
@@ -106,22 +93,12 @@ class AppSettings(BaseModel):
 
     @property
     def is_testnet(self) -> bool:
-        """Флаг тестовой сети для блокчейн-операций.
-
-        True  используем тестовые сети (dev/local).
-        False используем mainnet (prod и другие стенды).
-        """
+        # dev/local → testnet, остальное → mainnet
         return self.STAND in ("dev", "local")
 
 
 class DatabaseSettings(BaseModel):
-    """
-    Настройки БД.
-
-    Для STAND=local: использует статичные credentials из env vars
-    Для STAND=dev/prod: использует динамические credentials из Vault Database Secrets Engine
-    (credentials получаются автоматически в DatabaseManager)
-    """
+    # local: статичные creds из env; dev/prod: динамические из Vault (в DatabaseManager).
 
     HOST: str = getenv("CUSTODY_DB_HOST", "localhost")
     PORT: int = int(getenv("CUSTODY_DB_PORT", "5432"))
@@ -137,11 +114,10 @@ class DatabaseSettings(BaseModel):
         if stand == "local":
             logging.warning("⚠️ Используем локальные переменные для подключения к БД")
         elif migrate_stand:
-            # Режим миграции - название БД берём из env (alembic/env.py сам получит из Vault)
+            # миграция - имя БД из env (alembic/env.py сам достанет из Vault)
             logging.info("⚠️ Режим миграции: DB секреты не загружаются из settings")
         else:
-            # Dev/Prod - название БД берем из Vault
-            # USER и PASSWORD будут получены динамически через DatabaseManager
+            # dev/prod - имя БД из Vault; USER/PASSWORD динамически через DatabaseManager
             try:
                 from app.services.vault_client import vault_client
 
@@ -156,11 +132,7 @@ class DatabaseSettings(BaseModel):
 
     @property
     def connection_string(self) -> str:
-        """
-        URL подключения к БД.
-        Для local: статичный URL с credentials из env.
-        Для dev/prod: используется только для local, в prod URL генерируется в DatabaseManager.
-        """
+        # только для local; в prod URL генерируется в DatabaseManager
         return f"postgresql+asyncpg://{self.USER}:{self.PASSWORD}@{self.HOST}:{self.PORT}/{self.NAME}"
 
 
@@ -184,8 +156,7 @@ class RabbitMQSettings(BaseModel):
     # в колбек
     CALLBACK_QUEUE: str = "orders.custody.queue"
     CALLBACK_EXCHANGE: str = "orders.custody.exchange"
-    
-    # Transfer pipeline
+
     TRANSFER_EXCHANGE: str = "transfer.exchange"
 
     def __init__(self, **data):
@@ -199,11 +170,10 @@ class RabbitMQSettings(BaseModel):
                 "⚠️ RabbitMQ: используем локальные переменные для подключения"
             )
         elif migrate_stand:
-            # Режим миграции - не загружаем RabbitMQ секреты (нет доступа у runner-dev)
+            # миграция - RabbitMQ секреты не грузим (нет доступа у runner-dev)
             logging.info("⚠️ Режим миграции: RabbitMQ секреты не загружаются")
         else:
-            # Dev/Prod - читаем из Vault (общий секрет для окружения)
-            # secret path: <env>/rabbitmq
+            # dev/prod - читаем из Vault (общий секрет на окружение)
             try:
                 from app.services.vault_client import vault_client
 
@@ -221,7 +191,6 @@ class RabbitMQSettings(BaseModel):
 
     @property
     def connection_string(self) -> str:
-        """Get RabbitMQ connection string."""
         return f"amqp://{self.USER}:{self.PASSWORD}@{self.HOST}:{self.PORT}/"
 
 
@@ -250,7 +219,7 @@ class RedisSettings(BaseModel):
         elif migrate_stand:
             logging.info("⚠️ Режим миграции: Redis секреты не загружаются")
         else:
-            # Dev/Prod - читаем из Vault
+            # dev/prod - читаем из Vault
             try:
                 from app.services.vault_client import vault_client
 
@@ -265,15 +234,12 @@ class RedisSettings(BaseModel):
 
     @property
     def url(self) -> str:
-        """Redis connection URL."""
         if self.PASSWORD:
             return f"redis://:{self.PASSWORD}@{self.HOST}:{self.PORT}/{self.DB}"
         return f"redis://{self.HOST}:{self.PORT}/{self.DB}"
 
 
 class Settings(BaseSettings):
-    """Main settings class."""
-
     vault: VaultSettings = VaultSettings()
     app: AppSettings = AppSettings()
     database: DatabaseSettings = DatabaseSettings()
@@ -282,5 +248,4 @@ class Settings(BaseSettings):
     redis: RedisSettings = RedisSettings()
 
 
-# Global settings instance
 cfg = Settings()

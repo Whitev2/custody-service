@@ -1,5 +1,3 @@
-"""Asset schemas for API."""
-
 from datetime import datetime
 from uuid import UUID
 
@@ -24,8 +22,6 @@ class AssetCreateRequest(BaseModel):
 
 
 class AssetInfoResponse(BaseModel):
-    """Asset information response."""
-
     asset_id: UUID
     wallet_id: UUID
     vault_id: UUID
@@ -40,14 +36,10 @@ class AssetInfoResponse(BaseModel):
 
 
 class AssetHistoryResponse(BaseModel):
-    """Asset transaction history response."""
-
     transactions: list[dict]
     total: int
 
 
 class AssetAddressesResponse(BaseModel):
-    """Asset addresses across all vaults."""
-
     addresses: list[dict]
     total: int

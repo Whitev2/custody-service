@@ -1,6 +1,3 @@
-"""
-Tests for database models.
-"""
 import pytest
 from decimal import Decimal
 from uuid import uuid4
@@ -12,11 +9,9 @@ from app.models import VaultModel, AssetModel, WalletModel, TransactionModel
 
 
 class TestVaultModel:
-    """Tests for VaultModel."""
 
     @pytest.mark.asyncio
     async def test_create_vault(self, test_session: AsyncSession):
-        """Test creating a vault."""
         vault = VaultModel(
             id=uuid4(),
             provider_vault_id="fb_vault_test123",
@@ -40,7 +35,6 @@ class TestVaultModel:
     async def test_vault_wallets_relationship(
         self, test_session: AsyncSession, test_vault: VaultModel, test_wallet: WalletModel
     ):
-        """Test vault -> wallets relationship."""
         await test_session.refresh(test_vault, ["wallets"])
         
         assert len(test_vault.wallets) >= 1
@@ -48,7 +42,6 @@ class TestVaultModel:
 
     @pytest.mark.asyncio
     async def test_vault_default_values(self, test_session: AsyncSession):
-        """Test vault default values."""
         vault = VaultModel(
             id=uuid4(),
             provider_vault_id="fb_vault_defaults",
@@ -58,17 +51,15 @@ class TestVaultModel:
         await test_session.commit()
         await test_session.refresh(vault)
 
-        assert vault.status == "creating"  # Default status is "creating"
+        assert vault.status == "creating"
         assert vault.is_active is True
         assert vault.created_at is not None
 
 
 class TestAssetModel:
-    """Tests for AssetModel."""
 
     @pytest.mark.asyncio
     async def test_create_asset(self, test_session: AsyncSession):
-        """Test creating an asset."""
         asset = AssetModel(
             id=uuid4(),
             asset="BTC_NATIVE",
@@ -95,14 +86,12 @@ class TestAssetModel:
     async def test_asset_wallets_relationship(
         self, test_session: AsyncSession, test_asset: AssetModel, test_wallet: WalletModel
     ):
-        """Test asset -> wallets relationship."""
         await test_session.refresh(test_asset, ["wallets"])
         
         assert len(test_asset.wallets) >= 1
 
     @pytest.mark.asyncio
     async def test_asset_testnet_flag(self, test_session: AsyncSession):
-        """Test asset testnet flag."""
         asset = AssetModel(
             id=uuid4(),
             asset="ETH_TEST5",
@@ -121,13 +110,11 @@ class TestAssetModel:
 
 
 class TestWalletModel:
-    """Tests for WalletModel."""
 
     @pytest.mark.asyncio
     async def test_create_wallet(
         self, test_session: AsyncSession, test_vault: VaultModel, test_asset: AssetModel
     ):
-        """Test creating a wallet."""
         wallet = WalletModel(
             id=uuid4(),
             vault_id=test_vault.id,
@@ -150,7 +137,6 @@ class TestWalletModel:
     async def test_wallet_with_tag(
         self, test_session: AsyncSession, test_vault: VaultModel, test_asset: AssetModel
     ):
-        """Test wallet with memo tag."""
         wallet = WalletModel(
             id=uuid4(),
             vault_id=test_vault.id,
@@ -169,7 +155,6 @@ class TestWalletModel:
     async def test_wallet_balance_update(
         self, test_session: AsyncSession, test_wallet: WalletModel
     ):
-        """Test updating wallet balance."""
         test_wallet.balance = Decimal("500.50")
         await test_session.commit()
         await test_session.refresh(test_wallet)
@@ -180,7 +165,6 @@ class TestWalletModel:
     async def test_wallet_relationships(
         self, test_session: AsyncSession, test_wallet: WalletModel
     ):
-        """Test wallet relationships to vault and asset."""
         await test_session.refresh(test_wallet, ["vault", "asset"])
         
         assert test_wallet.vault is not None
@@ -188,7 +172,6 @@ class TestWalletModel:
 
 
 class TestTransactionModel:
-    """Tests for TransactionModel."""
 
     @pytest.mark.asyncio
     async def test_create_transaction(
@@ -198,7 +181,6 @@ class TestTransactionModel:
         test_wallet: WalletModel,
         test_asset: AssetModel,
     ):
-        """Test creating a transaction."""
         tx = TransactionModel(
             id=uuid4(),
             provider_tx_id="fb_tx_test_123",
@@ -234,7 +216,6 @@ class TestTransactionModel:
         test_wallet: WalletModel,
         test_asset: AssetModel,
     ):
-        """Test internal transaction flag."""
         tx = TransactionModel(
             id=uuid4(),
             provider_tx_id="fb_tx_internal",
@@ -257,7 +238,6 @@ class TestTransactionModel:
     async def test_transaction_relationships(
         self, test_session: AsyncSession, test_transaction: TransactionModel
     ):
-        """Test transaction relationships."""
         await test_session.refresh(test_transaction, ["vault", "wallet", "asset"])
         
         assert test_transaction.vault is not None
@@ -268,7 +248,6 @@ class TestTransactionModel:
     async def test_transaction_status_update(
         self, test_session: AsyncSession, test_transaction: TransactionModel
     ):
-        """Test updating transaction status."""
         test_transaction.status = "FAILED"
         test_transaction.failure_reason = "Insufficient gas"
         await test_session.commit()

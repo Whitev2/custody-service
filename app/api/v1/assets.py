@@ -1,7 +1,7 @@
-"""Asset Admin API v1 - CRUD operations for canonical assets.
+"""Asset Admin API v1 - CRUD канонических ассетов.
 
-Assets are provider-agnostic. Fireblocks asset ID is resolved dynamically
-using contract_address (for tokens) or blockchain (for native coins).
+Ассеты provider-agnostic. Fireblocks asset id резолвится динамически
+по contract_address (токены) или blockchain (нативные).
 """
 
 from uuid import UUID
@@ -26,7 +26,6 @@ router = APIRouter(prefix="/assets", tags=["Assets"])
 
 
 def _asset_to_response(asset: AssetModel) -> AssetResponse:
-    """Convert AssetModel to response."""
     return AssetResponse(
         id=asset.id,
         symbol=asset.symbol,
@@ -48,22 +47,13 @@ async def create_asset(
     request: AssetCreateRequest,
     db: AsyncSession = Depends(get_db),
 ):
-    """
-    Create a new asset.
-    
-    Assets are resolved to Fireblocks IDs automatically using:
-    - contract_address for tokens
-    - blockchain + is_native for native coins
-    """
-    # Check for duplicate
+    # дубликат: токен - по contract+testnet, нативный - по blockchain+is_native+testnet
     if request.contract_address:
-        # Token - check by contract address + testnet
         stmt = select(AssetModel).where(
             AssetModel.contract_address == request.contract_address,
             AssetModel.testnet == request.testnet,
         )
     else:
-        # Native - check by blockchain + is_native + testnet
         stmt = select(AssetModel).where(
             AssetModel.blockchain == request.blockchain.upper(),
             AssetModel.is_native.is_(True),
@@ -110,9 +100,8 @@ async def list_assets(
     testnet: str | None = Query(None, description="Filter by testnet"),
     db: AsyncSession = Depends(get_db),
 ):
-    """Get list of all assets."""
     stmt = select(AssetModel)
-    
+
     if blockchain:
         stmt = stmt.where(AssetModel.blockchain == blockchain.upper())
     
@@ -138,14 +127,13 @@ async def get_asset(
     asset_id: UUID,
     db: AsyncSession = Depends(get_db),
 ):
-    """Get asset by ID."""
     stmt = select(AssetModel).where(AssetModel.id == asset_id)
     result = await db.execute(stmt)
     asset = result.scalar_one_or_none()
-    
+
     if not asset:
         raise HTTPException(status_code=404, detail="Asset not found")
-    
+
     return _asset_to_response(asset)
 
 
@@ -155,15 +143,13 @@ async def update_asset(
     request: AssetUpdateRequest,
     db: AsyncSession = Depends(get_db),
 ):
-    """Update asset properties."""
     stmt = select(AssetModel).where(AssetModel.id == asset_id)
     result = await db.execute(stmt)
     asset = result.scalar_one_or_none()
-    
+
     if not asset:
         raise HTTPException(status_code=404, detail="Asset not found")
-    
-    # Update fields
+
     update_data = request.model_dump(exclude_unset=True)
     for field, value in update_data.items():
         setattr(asset, field, value)
@@ -182,11 +168,7 @@ async def lookup_by_contract(
     testnet: str | None = Query(None, description="Testnet name"),
     db: AsyncSession = Depends(get_db),
 ):
-    """
-    Find asset by contract address.
-    
-    Used for provider resolution - find canonical asset by contract.
-    """
+    """Найти канонический ассет по contract_address (для provider resolution)."""
     stmt = select(AssetModel).where(AssetModel.contract_address == contract_address)
     
     if testnet:
@@ -209,11 +191,7 @@ async def lookup_native_asset(
     testnet: str | None = Query(None, description="Testnet name"),
     db: AsyncSession = Depends(get_db),
 ):
-    """
-    Get native asset for a blockchain.
-    
-    For example: ETH for ETHEREUM, BTC for BITCOIN, TRX for TRON.
-    """
+    """Нативный ассет блокчейна (ETH для ETHEREUM, BTC для BITCOIN, TRX для TRON)."""
     stmt = select(AssetModel).where(
         AssetModel.blockchain == blockchain.upper(),
         AssetModel.is_native.is_(True),
@@ -233,33 +211,20 @@ async def lookup_native_asset(
     return _asset_to_response(asset)
 
 
-# ============= Fireblocks Resolution =============
-
 @router.post("/resolve/fireblocks", response_model=FireblocksAssetResponse, summary="Resolve Fireblocks asset ID")
 async def resolve_fireblocks_asset(
     request: AssetLookupRequest,
     db: AsyncSession = Depends(get_db),
 ):
-    """
-    Resolve canonical asset to Fireblocks asset ID.
-    
-    This is the KEY endpoint for provider integration:
-    - For tokens: finds by contract_address
-    - For native coins: finds by blockchain + is_native=True
-    
-    Returns both the canonical asset info and Fireblocks-specific asset ID.
-    """
+    # ключевой endpoint для интеграции провайдера: канонический ассет -> Fireblocks asset id
     from app.services.custody.fireblocks.service import fireblocks_service
-    
-    # 1. Find canonical asset in our database
+
     if request.contract_address:
-        # Token - find by contract address
         stmt = select(AssetModel).where(
             AssetModel.contract_address == request.contract_address,
             AssetModel.is_active.is_(True),
         )
     else:
-        # Native coin - find by blockchain
         stmt = select(AssetModel).where(
             AssetModel.blockchain == request.blockchain.upper(),
             AssetModel.is_native.is_(True),
@@ -279,8 +244,7 @@ async def resolve_fireblocks_asset(
             status_code=404, 
             detail=f"Asset not found for blockchain={request.blockchain}, contract={request.contract_address}"
         )
-    
-    # 2. Resolve Fireblocks asset ID dynamically
+
     is_testnet = request.testnet is not None
     fb_service = fireblocks_service()
     
@@ -320,22 +284,16 @@ async def resolve_fireblocks_by_id(
     asset_id: UUID,
     db: AsyncSession = Depends(get_db),
 ):
-    """
-    Resolve Fireblocks asset ID for a known canonical asset.
-    
-    Use this when you already have the asset_id from our database.
-    """
+    """Fireblocks asset id по известному asset_id из нашей БД."""
     from app.services.custody.fireblocks.service import fireblocks_service
-    
-    # Get asset from database
+
     stmt = select(AssetModel).where(AssetModel.id == asset_id)
     result = await db.execute(stmt)
     asset = result.scalar_one_or_none()
-    
+
     if not asset:
         raise HTTPException(status_code=404, detail="Asset not found")
-    
-    # Resolve Fireblocks asset ID
+
     is_testnet = asset.testnet is not None
     fb_service = fireblocks_service()
     

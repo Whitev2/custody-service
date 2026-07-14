@@ -20,28 +20,10 @@ async def fireblocks_webhook(
     db: AsyncSession = Depends(get_db),
     fireblocks_signature: str | None = Header(None, alias="Fireblocks-Signature"),
 ):
-    """
-    Process webhook events from Fireblocks.
-
-    Fireblocks sends notifications about:
-    - **transaction.created** - transaction creation
-    - **transaction.status_updated** - transaction status change
-    - **transaction.approval_status_updated** - approval status change
-    - **vault_account.added** - vault account added
-    - **vault_account.asset.added** - asset added to vault
-
-    For incoming deposits:
-    1. Transaction record is created/updated in DB
-    2. Wallet balance is updated when COMPLETED
-    3. Only technical data is stored (no business logic)
-
-    Headers:
-    - **Fireblocks-Signature**: Signature for request validation
-    """
-    # Read raw request body
+    """Приём webhook-событий от Fireblocks (tx + vault account)."""
     raw_body = await request.body()
 
-    # Validate signature (disabled only for local environment)
+    # подпись проверяем везде кроме local/dev
     if cfg.app.STAND in ["local", "dev"]:
         log.warning("⚠️ Webhook signature validation disabled")
     else:
@@ -56,14 +38,12 @@ async def fireblocks_webhook(
             log.warning("❌ Invalid webhook signature")
             raise HTTPException(status_code=401, detail="Invalid webhook signature")
 
-    # Parse payload
     try:
         payload = FireblocksWebhookPayloadSchema.model_validate_json(raw_body)
     except ValidationError as e:
         log.error(f"❌ Error parsing webhook payload: {e}")
         raise HTTPException(status_code=400, detail=f"Invalid payload: {e}")
 
-    # Process event
     try:
         result = await process_webhook(
             db=db,
@@ -77,17 +57,12 @@ async def fireblocks_webhook(
     except Exception as e:
         log.error(f"❌ Error processing webhook: {e}", exc_info=True)
         await db.rollback()
-        # Return 200 so Fireblocks doesn't retry
-        # Errors are logged for analysis
+        # 200 чтобы Fireblocks не ретраил
         return {"status": "error", "message": str(e)}
-
-
-# ==================== Webhook Management Endpoints ====================
 
 
 @router.get("/fireblocks/manage", summary="Get list of all webhooks")
 async def list_webhooks():
-    """Get list of all registered webhooks in Fireblocks."""
     try:
         provider = get_provider()
         webhooks = await provider.get_webhooks()
@@ -99,7 +74,6 @@ async def list_webhooks():
 
 @router.get("/fireblocks/manage/{webhook_id}", summary="Get webhook info")
 async def get_webhook(webhook_id: str):
-    """Get information about specific webhook by ID."""
     try:
         provider = get_provider()
         webhook = await provider.get_webhook(webhook_id)

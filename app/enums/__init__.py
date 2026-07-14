@@ -1,5 +1,3 @@
-"""Enums package."""
-
 __all__ = [
     "TransactionStatusEnum",
     "TransactionOperationEnum",

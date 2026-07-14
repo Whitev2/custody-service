@@ -24,7 +24,6 @@ router = APIRouter(prefix="/whitelist", tags=["Whitelist"])
 async def add_whitelist_address(
     request: WhitelistAddRequest, db: AsyncSession = Depends(get_db)
 ):
-    """Add address to whitelist."""
     vault = await db.get(VaultModel, request.vault_id)
     if not vault:
         raise HTTPException(status_code=404, detail="Vault not found")
@@ -59,7 +58,6 @@ async def list_whitelist_addresses(
     asset_id: UUID = Query(None, description="Optional: Filter by Asset ID"),
     db: AsyncSession = Depends(get_db),
 ):
-    """List whitelist addresses for vault (optionally filtered by asset)."""
     vault = await db.get(VaultModel, vault_id)
     if not vault:
         raise HTTPException(status_code=404, detail="Vault not found")
@@ -86,7 +84,6 @@ async def list_whitelist_addresses(
 async def check_whitelist_address(
     request: WhitelistCheckRequest, db: AsyncSession = Depends(get_db)
 ):
-    """Check if address is in whitelist for vault asset."""
     vault = await db.get(VaultModel, request.vault_id)
     if not vault:
         raise HTTPException(status_code=404, detail="Vault not found")
@@ -126,7 +123,6 @@ async def remove_whitelist_address(
     vault_id: UUID = Query(..., description="Vault ID"),
     db: AsyncSession = Depends(get_db),
 ):
-    """Remove address from whitelist."""
     vault = await db.get(VaultModel, vault_id)
     if not vault:
         raise HTTPException(status_code=404, detail="Vault not found")

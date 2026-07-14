@@ -22,7 +22,6 @@ router = APIRouter(prefix="/vault", tags=["Vault"])
 async def create_vault_endpoint(
     request: VaultCreateRequest, db: AsyncSession = Depends(get_db)
 ) -> VaultCreateResponse:
-    """Create new vault with assets."""
     log.info(f"Received vault create request: name={request.name}, assets={request.assets}")
     try:
         vault = await create_vault(
@@ -33,7 +32,6 @@ async def create_vault_endpoint(
             assets=request.assets,
         )
 
-        # Build wallets list
         wallets = []
         for wallet in vault.wallets:
             wallets.append(
@@ -71,12 +69,10 @@ async def create_vault_endpoint(
 
 @router.get("/{vault_id}/info", response_model=VaultInfoResponse)
 async def get_vault_info_endpoint(vault_id: UUID, db: AsyncSession = Depends(get_db)):
-    """Get vault information with wallets and balances."""
     vault = await get_vault_info(db, vault_id)
     if not vault:
         raise HTTPException(status_code=404, detail="Vault not found")
 
-    # Get wallets with balances
     wallets_data = []
     for wallet in vault.wallets:
         wallets_data.append(
@@ -110,7 +106,6 @@ async def list_vaults_endpoint(
     limit: int = Query(100, ge=1, le=1000),
     db: AsyncSession = Depends(get_db),
 ):
-    """List all vaults."""
     vaults, total = await list_vaults(db, skip, limit)
 
     vaults_data = []

@@ -1,5 +1,3 @@
-"""Transfer schemas for API."""
-
 from datetime import datetime
 from decimal import Decimal
 from uuid import UUID
@@ -7,18 +5,8 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field
 
 
-# ============================================================================
-# Request Schemas
-# ============================================================================
-
-
 class ExternalTransferRequest(BaseModel):
-    """
-    External transfer request (requires Workflow approval).
-
-    Used for payouts to external addresses.
-    Starts with status=PENDING_APPROVAL, balance reserved after approve.
-    """
+    # payout наружу, требует апрув в Workflow. PENDING_APPROVAL -> резерв после approve
 
     request_id: str = Field(..., description="Unique request ID for tracing")
     blockchain: str = Field(..., description="Blockchain (ethereum, tron, bsc)")
@@ -34,12 +22,7 @@ class ExternalTransferRequest(BaseModel):
 
 
 class InternalTransferRequest(BaseModel):
-    """
-    Internal transfer request (whitelist only, no approval required).
-
-    Used for transfers between vaults or to whitelisted addresses.
-    Balance reserved immediately, sent to Fireblocks right away.
-    """
+    # whitelist only, без апрува. Резерв сразу, шлём в Fireblocks сразу
 
     request_id: str = Field(..., description="Unique request ID for tracing")
     blockchain: str = Field(..., description="Blockchain (ethereum, tron, bsc)")
@@ -57,40 +40,26 @@ class InternalTransferRequest(BaseModel):
 
 
 class RejectRequest(BaseModel):
-    """Request to reject a transfer."""
-
     reason: str = Field(
         ..., description="Rejection reason", min_length=3, max_length=500
     )
 
 
 class CompleteRequest(BaseModel):
-    """Request to complete a transfer (after blockchain confirmation)."""
-
     tx_hash: str | None = Field(None, description="Blockchain transaction hash")
 
 
 class SigningRequest(BaseModel):
-    """Request to update transfer to signing status."""
-
     provider_tx_id: str = Field(..., description="Fireblocks transaction ID")
 
 
 class CancelRequest(BaseModel):
-    """Request to cancel a transfer."""
-
     reason: str = Field(
         ..., description="Cancellation reason", min_length=3, max_length=500
     )
 
 
-# ============================================================================
-# Response Schemas
-# ============================================================================
-
-
 class TransferResponse(BaseModel):
-    """Response for both internal and external transfers."""
     model_config = ConfigDict(from_attributes=True)
 
     transfer_id: UUID = Field(..., description="Transfer ID")
@@ -126,8 +95,6 @@ class TransferResponse(BaseModel):
 
 
 class ApproveResponse(BaseModel):
-    """Response after approve call."""
-
     request_id: str = Field(..., description="Request ID")
     status: str = Field(
         ..., description="New status: 'pending' (ready) or 'pending_balance' (queued)"
@@ -138,8 +105,6 @@ class ApproveResponse(BaseModel):
 
 
 class QueueStatsResponse(BaseModel):
-    """Pending balance queue statistics."""
-
     pending_count: int = Field(
         ..., description="Number of transfers waiting for balance"
     )
@@ -149,13 +114,8 @@ class QueueStatsResponse(BaseModel):
     )
 
 
-# ============================================================================
-# Legacy compatibility - keeping old response format
-# ============================================================================
-
-
 class LegacyTransferResponse(BaseModel):
-    """Legacy transfer response for backward compatibility."""
+    # старый формат ответа, для обратной совместимости
 
     transfer_id: UUID
     provider_tx_id: str

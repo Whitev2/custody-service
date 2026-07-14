@@ -27,8 +27,6 @@ from app.storage import init_db, close_db, db_manager
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    """Application lifespan events."""
-    # Startup
     log.info("🚀 Starting Custody Service...")
 
     if not os.getenv("MIGRATE_STAND"):
@@ -37,42 +35,34 @@ async def lifespan(_: FastAPI):
                 "Fireblocks credentials are required to start the service: set API_KEY and PRIVATE_KEY"
             )
 
-    # Initialize database (includes Vault credentials refresh)
+    # includes Vault credentials refresh
     await init_db()
 
-    # Запуск фоновой задачи обновления Vault токена (для dev/prod)
+    # фоновое обновление Vault токена и DB credentials (dev/prod)
     await vault_client.start_background_refresh()
-
-    # Запуск фоновой задачи обновления DB credentials (для dev/prod)
     await db_manager.start_background_refresh()
 
-    # Инициализация http клиента
     http_client.initialize()
 
-    # Initialize Redis (optional - for distributed locks)
+    # optional - for distributed locks
     await init_redis()
 
-    # Auto-sync assets from Fireblocks
     await sync_fireblocks_assets()
 
-    # Bootstrap default HOT wallet if not exists
     async with db_manager.get_db_local() as db:
         await bootstrap_default_hot_wallet(db)
 
-    # Initialize all transfer.* queues (Custody is source of truth)
+    # Custody is source of truth
     await init_transfer_queues()
     log.info("📦 Transfer queues initialized")
 
-    # Start RabbitMQ consumers
     await start_rejected_consumer()
     await start_approved_consumer()
     log.info("📨 Transfer consumers started")
 
-    # Start background balance sync task (every 5 minutes)
     await start_balance_sync_task()
     log.info("📊 Balance sync task started")
 
-    # Start background asset sync task (every 10 minutes)
     await start_asset_sync_task()
     log.info("🔄 Asset sync task started")
 
@@ -80,9 +70,7 @@ async def lifespan(_: FastAPI):
 
     yield
 
-    # Shutdown
     log.info("🛑 Shutting down Custody Service...")
-    # Остановка фоновых задач Vault и DB
     await vault_client.stop_background_refresh()
     await db_manager.stop_background_refresh()
 
@@ -96,7 +84,6 @@ async def lifespan(_: FastAPI):
     log.info("👋 Custody Service stopped")
 
 
-# Create FastAPI app
 app = FastAPI(
     title="Custody Service",
     description="Custody service for wallet and transaction management",
@@ -118,27 +105,21 @@ class HealthCheckFilter(logging.Filter):
 
 logging.getLogger("uvicorn.access").addFilter(HealthCheckFilter())
 
-# Include routers
 app.include_router(router)
 
 
 @app.get("/health")
 async def health_check():
-    """Health check endpoint."""
     return {"status": "healthy", "service": "custody"}
 
 
 @app.get("/healthz")
 async def healthz():
-    """Liveness probe endpoint - checks if app is alive."""
     return {"status": "ok"}
 
 
 @app.get("/ready")
 async def ready():
-    """Readiness probe endpoint - checks if app is ready for traffic."""
-
-    # Check if database is initialized and connected
     if not db_manager.initialized:
         raise HTTPException(status_code=503, detail="Database not initialized")
 

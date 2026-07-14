@@ -1,8 +1,4 @@
-"""
-Treasury API - HOT/WARM/COLD wallet management.
-
-Endpoints for managing treasury wallets and monitoring balances.
-"""
+"""Treasury API - HOT/WARM/COLD wallet management."""
 
 from decimal import Decimal
 from datetime import datetime, timezone
@@ -38,28 +34,12 @@ from app.dao.asset import activate_asset_for_vault
 router = APIRouter()
 
 
-# ============================================================================
-# Treasury Vault CRUD
-# ============================================================================
-
-
 @router.post("/vaults", response_model=TreasuryVaultResponse)
 async def create_treasury_vault(
     request: TreasuryVaultCreateRequest,
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    """
-    Create a new treasury vault (HOT/WARM/COLD).
-
-    Treasury vaults are used for managing platform funds:
-    - HOT: Instant user withdrawals (5-10% of funds)
-    - WARM: Intermediate buffer, auto-refills HOT (20-30%)
-    - COLD: Long-term storage (60-70%)
-
-    Assets format: [{blockchain: "ETHEREUM", contract_address: "0x..."}, ...]
-    For native tokens (ETH, BTC, TRX) use contract_address: null
-    """
-    # Validate vault type
+    # assets: [{blockchain, contract_address}, ...], для нативных contract_address=null
     if request.vault_type not in (
         VaultTypeEnum.HOT,
         VaultTypeEnum.WARM,
@@ -70,7 +50,7 @@ async def create_treasury_vault(
             status_code=400, detail="Treasury vaults must be HOT, WARM, COLD or OPERATIONAL type"
         )
 
-    # If setting as primary, unset existing primary for this type
+    # если ставим primary - снимаем старый primary этого типа
     if request.is_primary:
         stmt = select(VaultModel).where(
             VaultModel.vault_type == request.vault_type.value,
@@ -86,10 +66,8 @@ async def create_treasury_vault(
     is_testnet = cfg.app.is_testnet
 
     try:
-        # Create vault in Fireblocks
         fb_vault = await provider.create_vault(request.name, auto_fuel=True)
 
-        # Create vault in DB
         vault = VaultModel(
             provider_vault_id=fb_vault["id"],
             name=request.name,
@@ -108,27 +86,22 @@ async def create_treasury_vault(
         db.add(vault)
         await db.flush()
 
-        # Activate assets if provided (using {blockchain, contract_address} format)
         wallets = []
         for asset_req in request.assets:
             try:
-                # Find asset in local DB by blockchain + contract_address
                 if asset_req.contract_address:
-                    # Token with contract
                     stmt = select(AssetModel).where(
                         AssetModel.blockchain == asset_req.blockchain.upper(),
                         AssetModel.contract_address == asset_req.contract_address,
                         AssetModel.is_active.is_(True),
                     )
                 else:
-                    # Native token (ETH, TRX, BTC, etc.)
                     stmt = select(AssetModel).where(
                         AssetModel.blockchain == asset_req.blockchain.upper(),
                         AssetModel.contract_address.is_(None),
                         AssetModel.is_active.is_(True),
                     )
-                
-                # Filter by testnet
+
                 if is_testnet:
                     stmt = stmt.where(AssetModel.testnet.isnot(None))
                 else:
@@ -144,7 +117,6 @@ async def create_treasury_vault(
                     )
                     continue
 
-                # Activate asset in vault
                 asset_data = {
                     "blockchain": asset_model.blockchain,
                     "currency": asset_model.currency,
@@ -283,8 +255,6 @@ async def get_treasury_vault(
     vault_id: UUID,
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    """Get treasury vault details."""
-
     stmt = (
         select(VaultModel)
         .where(VaultModel.id == vault_id)
@@ -349,8 +319,6 @@ async def update_treasury_vault(
     request: TreasuryVaultUpdateRequest,
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    """Update treasury vault settings."""
-
     stmt = select(VaultModel).where(VaultModel.id == vault_id)
     result = await db.execute(stmt)
     vault = result.scalar_one_or_none()
@@ -366,7 +334,6 @@ async def update_treasury_vault(
     ):
         raise HTTPException(status_code=400, detail="Not a treasury vault")
 
-    # Update fields
     if request.min_balance_usd is not None:
         vault.min_balance_usd = request.min_balance_usd
     if request.max_balance_usd is not None:
@@ -382,9 +349,8 @@ async def update_treasury_vault(
     if request.description is not None:
         vault.description = request.description
 
-    # Handle is_primary
     if request.is_primary is not None and request.is_primary:
-        # Unset existing primary
+        # снимаем старый primary
         unset_stmt = select(VaultModel).where(
             VaultModel.vault_type == vault.vault_type,
             VaultModel.is_primary,
@@ -408,14 +374,9 @@ async def activate_asset_in_treasury_vault(
     request: TreasuryAssetRequest,
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    """
-    Activate an asset (create wallet) in treasury vault.
-    
-    Creates a new wallet address for the specified asset in the vault.
-    """
+    """Активировать ассет (создать wallet) в treasury vault."""
     is_testnet = cfg.app.is_testnet
 
-    # Get vault
     stmt = (
         select(VaultModel)
         .where(VaultModel.id == vault_id)
@@ -435,7 +396,6 @@ async def activate_asset_in_treasury_vault(
     ):
         raise HTTPException(status_code=400, detail="Not a treasury vault")
 
-    # Find asset in DB
     if request.contract_address:
         asset_stmt = select(AssetModel).where(
             AssetModel.blockchain == request.blockchain.upper(),
@@ -449,7 +409,6 @@ async def activate_asset_in_treasury_vault(
             AssetModel.is_active.is_(True),
         )
 
-    # Filter by testnet
     if is_testnet:
         asset_stmt = asset_stmt.where(AssetModel.testnet.isnot(None))
     else:
@@ -464,7 +423,7 @@ async def activate_asset_in_treasury_vault(
             detail=f"Asset not found: blockchain={request.blockchain}, contract={request.contract_address}"
         )
 
-    # Check if already activated
+    # уже активирован?
     for wallet in vault.wallets:
         if wallet.asset_id == asset_model.id:
             return WalletBalanceInfo(
@@ -477,7 +436,6 @@ async def activate_asset_in_treasury_vault(
                 balance=Decimal(wallet.balance or "0"),
             )
 
-    # Activate asset in vault
     try:
         asset_data = {
             "blockchain": asset_model.blockchain,
@@ -503,22 +461,10 @@ async def activate_asset_in_treasury_vault(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# ============================================================================
-# Treasury Overview
-# ============================================================================
-
-
 @router.get("/overview", response_model=TreasuryOverviewResponse)
 async def get_treasury_overview(
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    """
-    Get treasury overview with all wallet types and health status.
-
-    Returns aggregated balances and health status for HOT, WARM, COLD, and POOL wallets.
-    """
-
-    # Get all treasury vaults with wallets
     stmt = (
         select(VaultModel)
         .where(
@@ -537,7 +483,6 @@ async def get_treasury_overview(
     result = await db.execute(stmt)
     vaults = result.scalars().all()
 
-    # Aggregate by type
     type_balances = {
         VaultTypeEnum.HOT.value: {"count": 0, "balance": Decimal("0"), "target": None},
         VaultTypeEnum.WARM.value: {"count": 0, "balance": Decimal("0"), "target": None},
@@ -556,7 +501,6 @@ async def get_treasury_overview(
 
     total_balance = sum(tb["balance"] for tb in type_balances.values())
 
-    # Calculate actual percentages
     alerts = []
 
     def make_summary(vt: str) -> TreasuryBalanceSummary | None:
@@ -570,7 +514,6 @@ async def get_treasury_overview(
             else Decimal("0")
         )
 
-        # Determine health
         health = "healthy"
         if data["target"]:
             diff = abs(float(actual_percent) - data["target"])
@@ -595,7 +538,6 @@ async def get_treasury_overview(
     warm_summary = make_summary(VaultTypeEnum.WARM.value)
     cold_summary = make_summary(VaultTypeEnum.COLD.value)
 
-    # Overall health
     overall_health = "healthy"
     if any(
         s and s.health_status == "critical"
@@ -623,12 +565,7 @@ async def get_treasury_overview(
 async def get_balances_by_asset(
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    """
-    Get balances grouped by asset across all vault types.
-
-    Shows how much of each asset is in HOT, WARM, and COLD wallets.
-    """
-
+    """Балансы по ассетам в разрезе HOT/WARM/COLD."""
     stmt = (
         select(VaultModel)
         .where(
@@ -647,7 +584,6 @@ async def get_balances_by_asset(
     result = await db.execute(stmt)
     vaults = result.scalars().all()
 
-    # Aggregate by asset
     asset_balances: dict[str, dict] = {}
 
     for vault in vaults:
@@ -690,24 +626,12 @@ async def get_balances_by_asset(
     ]
 
 
-# ============================================================================
-# Rebalancing
-# ============================================================================
-
-
 @router.post("/rebalance", response_model=RebalanceResponse)
 async def request_rebalance(
     request: RebalanceRequest,
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    """
-    Request a rebalance transfer between treasury wallets.
-
-    Transfers from COLD require manual approval.
-    Transfers from WARM to HOT can be auto-approved based on policy.
-    """
-
-    # Get source vault
+    # из COLD - ручной approval, WARM->HOT можно авто по политике
     source_stmt = select(VaultModel).where(VaultModel.id == request.source_vault_id)
     source_result = await db.execute(source_stmt)
     source_vault = source_result.scalar_one_or_none()
@@ -715,7 +639,6 @@ async def request_rebalance(
     if not source_vault:
         raise HTTPException(status_code=404, detail="Source vault not found")
 
-    # Get destination vault
     dest_stmt = select(VaultModel).where(VaultModel.id == request.destination_vault_id)
     dest_result = await db.execute(dest_stmt)
     dest_vault = dest_result.scalar_one_or_none()
@@ -723,7 +646,6 @@ async def request_rebalance(
     if not dest_vault:
         raise HTTPException(status_code=404, detail="Destination vault not found")
 
-    # Validate both are treasury vaults
     treasury_types = (
         VaultTypeEnum.HOT.value,
         VaultTypeEnum.WARM.value,
@@ -737,7 +659,6 @@ async def request_rebalance(
             status_code=400, detail="Both vaults must be treasury vaults"
         )
 
-    # Get asset info
     asset_stmt = select(AssetModel).where(AssetModel.id == request.asset_id)
     asset_result = await db.execute(asset_stmt)
     asset = asset_result.scalar_one_or_none()
@@ -745,15 +666,12 @@ async def request_rebalance(
     if not asset:
         raise HTTPException(status_code=404, detail="Asset not found")
 
-    # Determine if approval is required
     requires_approval = source_vault.vault_type in (
         VaultTypeEnum.COLD.value,
         VaultTypeEnum.WARM.value,
     )
 
-    # TODO: Create internal transfer request in workflow service
-    # For now, return pending status
-
+    # TODO: создать internal transfer request в workflow service
     transfer_id = uuid4()
 
     return RebalanceResponse(
@@ -772,18 +690,11 @@ async def request_rebalance(
     )
 
 
-# ============================================================================
-# Primary Vault Management
-# ============================================================================
-
-
 @router.get("/primary/{vault_type}", response_model=TreasuryVaultResponse)
 async def get_primary_vault(
     vault_type: VaultTypeEnum,
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    """Get the primary vault for a given type (HOT/WARM/COLD)."""
-
     if vault_type not in (VaultTypeEnum.HOT, VaultTypeEnum.WARM, VaultTypeEnum.COLD):
         raise HTTPException(status_code=400, detail="Invalid vault type for primary")
 
@@ -809,21 +720,14 @@ async def get_primary_vault(
     return await get_treasury_vault(vault.id, db)
 
 
-# ============================================================================
-# Balance Sync
-# ============================================================================
-
-
 @router.get("/sync/status", summary="Get balance sync status")
 async def get_balance_sync_status() -> dict:
-    """Get current status of background balance sync task."""
     from app.services.balance_sync import get_sync_status
     return await get_sync_status()
 
 
 @router.post("/sync/run", summary="Run balance sync now")
 async def run_balance_sync_now() -> dict:
-    """Manually trigger balance sync for all treasury vaults."""
     from app.services.balance_sync import sync_treasury_balances
     stats = await sync_treasury_balances()
     return {
@@ -836,19 +740,11 @@ async def run_balance_sync_now() -> dict:
 async def sync_vaults_from_fireblocks(
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> dict:
-    """
-    Import/sync all vaults from Fireblocks to custody DB.
-    
-    This will:
-    1. Fetch all vaults from Fireblocks
-    2. Create missing vaults in custody DB
-    3. Return count of synced vaults
-    """
+    """Импорт всех vault'ов из Fireblocks в custody DB (создаёт недостающие)."""
     from app.services.custody import get_provider
-    
+
     provider = get_provider()
-    
-    # Get all vaults from Fireblocks
+
     fb_vaults = await provider.get_vaults()
     log.info(f"Found {len(fb_vaults)} vaults in Fireblocks")
     
@@ -863,17 +759,16 @@ async def sync_vaults_from_fireblocks(
         if not vault_id:
             errors.append(f"Vault without ID: {fb_vault}")
             continue
-        
-        # Check if vault exists in DB
+
         stmt = select(VaultModel).where(VaultModel.provider_vault_id == str(vault_id))
         result = await db.execute(stmt)
         existing = result.scalar_one_or_none()
-        
+
         if existing:
             skipped += 1
             continue
-        
-        # Determine vault type from name
+
+        # тип vault определяем по имени
         vault_type = VaultTypeEnum.REGULAR.value
         name_upper = vault_name.upper()
         if "HOT" in name_upper:
@@ -884,8 +779,7 @@ async def sync_vaults_from_fireblocks(
             vault_type = VaultTypeEnum.COLD.value
         elif "GAS" in name_upper or "FEE" in name_upper or "OPERATIONAL" in name_upper:
             vault_type = VaultTypeEnum.OPERATIONAL.value
-        
-        # Create vault in DB
+
         try:
             vault = VaultModel(
                 provider_vault_id=str(vault_id),
@@ -909,19 +803,18 @@ async def sync_vaults_from_fireblocks(
         "fireblocks_vaults": len(fb_vaults),
         "synced": synced,
         "skipped": skipped,
-        "errors": errors[:10] if errors else [],  # Limit errors
+        "errors": errors[:10] if errors else [],
     }
 
 
 @router.get("/fireblocks/vaults", summary="Get raw vaults from Fireblocks")
 async def get_fireblocks_vaults() -> list[dict]:
-    """Get all vaults directly from Fireblocks (for debugging)."""
+    """Vault'ы напрямую из Fireblocks (для дебага)."""
     from app.services.custody import get_provider
-    
+
     provider = get_provider()
     fb_vaults = await provider.get_vaults()
-    
-    # Return simplified list
+
     return [
         {
             "id": v.get("id") or v.get("vaultAccountId"),
@@ -954,14 +847,7 @@ async def reset_wallet_pending(
     return {"status": "ok", "wallet_id": str(wallet_id), "pending_amount": "0"}
 
 
-# ============================================================================
-# Helpers
-# ============================================================================
-
-
 def _get_vault_health(vault: VaultModel, total_balance: Decimal) -> str:
-    """Determine vault health status."""
-
     if vault.min_balance_usd and total_balance < vault.min_balance_usd:
         return "critical"
 

@@ -57,7 +57,6 @@ def _vault_names_match(provider_name: str, expected_name: str) -> bool:
 
 
 async def _find_vault_by_name(db: AsyncSession, name: str) -> VaultModel | None:
-    """Find vault by name in local DB."""
     stmt = select(VaultModel).where(VaultModel.name == name)
     result = await db.execute(stmt)
     return result.scalar_one_or_none()
@@ -69,7 +68,6 @@ async def _sync_vault_from_provider(
     provider_vault_id: str,
     vault_type: str = VaultTypeEnum.REGULAR.value,
 ) -> VaultModel:
-    """Sync existing vault from provider to local DB."""
     stmt = select(VaultModel).where(VaultModel.provider_vault_id == provider_vault_id)
     result = await db.execute(stmt)
     existing = result.scalar_one_or_none()
@@ -159,14 +157,13 @@ async def _activate_assets_async(
     """Activate multiple assets in parallel with batching."""
 
     async def activate_single(asset_data: dict) -> tuple[dict, Exception | None]:
-        """Activate single asset and return result."""
         try:
             await activate_asset_for_vault(db, vault, asset_data)
             return (asset_data, None)
         except Exception as e:
             return (asset_data, e)
 
-    # Process assets in batches to avoid overwhelming the API
+    # батчим, чтобы не завалить API
     total_assets = len(assets)
     log.info(f"Activating {total_assets} assets in parallel (batch_size={batch_size})")
 
@@ -177,12 +174,10 @@ async def _activate_assets_async(
 
         log.debug(f"Processing batch {batch_num}/{total_batches} ({len(batch)} assets)")
 
-        # Run batch in parallel
         results = await asyncio.gather(
             *[activate_single(asset) for asset in batch], return_exceptions=False
         )
 
-        # Log results
         for asset_data, error in results:
             if error:
                 error_msg = str(error).lower()
@@ -195,7 +190,6 @@ async def _activate_assets_async(
                         f"Failed to activate asset {asset_data} in vault {vault.name}: {error}"
                     )
 
-        # Commit after each batch
         await db.commit()
 
     log.info(f"✅ Completed activation of {total_assets} assets")
@@ -208,35 +202,23 @@ async def create_vault(
     vault_type: str = VaultTypeEnum.REGULAR.value,
     assets: list[dict] | None = None,
 ) -> VaultModel:
-    """Create new vault.
-
-    Args:
-        db: Database session
-        name: Vault name (auto-generated if not provided)
-        auto_fuel: Enable auto fuel
-        vault_type: Type of vault
-        assets: Optional list of assets [{blockchain, contract_address}, ...].
-            contract_address=null for native coins.
-            If not provided, creates empty vault (add assets via /asset/create).
-    """
+    # assets=None → пустой vault; ассеты добавляются через /asset/create.
     is_testnet = cfg.app.is_testnet
-    # Generate name if not provided
     if not name:
         name = f"VAULT_{uuid4().hex[:8].upper()}"
 
-    # Assets must be explicitly provided - we don't auto-add all 1000+ assets
+    # ассеты только явно - не тянем все 1000+ автоматически
     if assets is None:
         assets = []
         log.info(f"Creating vault {name} without assets (add them via /asset/create)")
-    
-    # Convert {blockchain, contract_address} to {blockchain, currency, network} for activate_asset_for_vault
+
+    # {blockchain, contract_address} → {blockchain, currency, network} для activate_asset_for_vault
     if assets and len(assets) > 0:
         resolved_assets = []
         for asset_data in assets:
             blockchain = asset_data.get("blockchain")
             contract_address = asset_data.get("contract_address")
-            
-            # Find asset in DB by blockchain + contract_address
+
             if contract_address:
                 stmt = select(AssetModel).where(
                     AssetModel.blockchain.ilike(blockchain),
@@ -244,7 +226,7 @@ async def create_vault(
                     AssetModel.is_active,
                 )
             else:
-                # Native coin - contract_address IS NULL
+                # нативная монета - contract_address IS NULL
                 stmt = select(AssetModel).where(
                     AssetModel.blockchain.ilike(blockchain),
                     AssetModel.contract_address.is_(None),
@@ -268,15 +250,12 @@ async def create_vault(
         assets = resolved_assets
         log.info(f"Resolved {len(assets)} assets for vault {name}")
 
-    # Check if vault already exists in local DB
     existing_vault = await _find_vault_by_name(db, name)
     if existing_vault:
         log.info(f"Vault already exists in DB: {existing_vault.id}, name={name}")
 
-        # Sync assets for existing vault in parallel
         await _activate_assets_async(db, existing_vault, assets)
 
-        # Load wallets and return
         stmt = (
             select(VaultModel)
             .where(VaultModel.id == existing_vault.id)
@@ -285,17 +264,15 @@ async def create_vault(
         result = await db.execute(stmt)
         return result.scalar_one()
 
-    # Create vault using provider
     provider = get_provider()
     try:
         fb_vault = await provider.create_vault(name, auto_fuel)
     except Exception as e:
         error_msg = str(e)
-        # Handle "vault already exists" error from Fireblocks
+        # Fireblocks "vault already exists" (9004) - синкаем существующий
         if "already exists" in error_msg.lower() or "9004" in error_msg:
             log.warning(f"Vault '{name}' already exists in provider, syncing...")
 
-            # Find vault in Fireblocks by name
             provider_vault = await _find_provider_vault_by_name(name)
             if provider_vault:
                 provider_vault_id = _get_provider_vault_id(provider_vault)
@@ -306,10 +283,8 @@ async def create_vault(
                     db, name, str(provider_vault_id), vault_type
                 )
 
-                # Sync all assets for existing vault in parallel
                 await _activate_assets_async(db, vault, assets)
 
-                # Load wallets
                 stmt = (
                     select(VaultModel)
                     .where(VaultModel.id == vault.id)
@@ -329,7 +304,6 @@ async def create_vault(
         else:
             raise
 
-    # Create vault in DB
     vault = VaultModel(
         provider_vault_id=fb_vault["id"],
         name=name,
@@ -340,10 +314,8 @@ async def create_vault(
     db.add(vault)
     await db.flush()
 
-    # Activate assets in parallel
     await _activate_assets_async(db, vault, assets)
 
-    # Load wallets with asset info
     stmt = (
         select(VaultModel)
         .where(VaultModel.id == vault.id)
@@ -357,8 +329,6 @@ async def create_vault(
 
 
 async def get_vault_info(db: AsyncSession, vault_id: UUID) -> VaultModel | None:
-    """Get vault information with wallets."""
-
     stmt = (
         select(VaultModel)
         .where(VaultModel.id == vault_id)
@@ -371,14 +341,10 @@ async def get_vault_info(db: AsyncSession, vault_id: UUID) -> VaultModel | None:
 async def list_vaults(
     db: AsyncSession, skip: int = 0, limit: int = 100
 ) -> tuple[list[VaultModel], int]:
-    """List all vaults with wallets."""
-
-    # Get total count
     count_stmt = select(func.count(VaultModel.id)).where(VaultModel.is_active.is_(True))
     count_result = await db.execute(count_stmt)
     total = count_result.scalar() or 0
 
-    # Get vaults with wallets loaded
     stmt = (
         select(VaultModel)
         .where(VaultModel.is_active.is_(True))

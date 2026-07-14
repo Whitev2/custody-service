@@ -133,9 +133,7 @@ def parse_fireblocks_asset(asset_id: str, fb_asset: dict) -> dict | None:
 
 
 def mapping_native_tokens():
-    """
-    Mapping of Fireblocks native symbols to Fireblocks asset IDs and metadata.
-    """
+    # нативные символы -> Fireblocks asset ID + метаданные
     return {
         "prod": {
             "ETH": {

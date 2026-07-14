@@ -28,20 +28,11 @@ router = APIRouter(prefix="/asset", tags=["Asset"])
 async def create_asset_endpoint(
     request: AssetCreateRequest, db: AsyncSession = Depends(get_db)
 ):
-    """
-    Create/activate asset in vault.
-
-    Поиск asset:
-    1. По asset_id (если указан)
-    2. По blockchain + contract_address
-       - contract_address = "0x..." → токен
-       - contract_address = null → нативная монета
-    """
-
+    """Create/activate asset in vault. поиск по asset_id или blockchain+contract_address."""
     try:
         asset_id = request.asset_id
 
-        # Если asset_id не указан - ищем по blockchain + contract_address
+        # asset_id не указан - ищем по blockchain + contract_address (null = нативная монета)
         if not asset_id:
             if not request.blockchain:
                 raise HTTPException(
@@ -49,16 +40,14 @@ async def create_asset_endpoint(
                     detail="blockchain is required when asset_id is not provided",
                 )
 
-            # Ищем по blockchain + contract_address (NULL для нативных)
             if request.contract_address:
-                # Токен - ищем по contract_address
                 stmt = select(AssetModel).where(
                     AssetModel.blockchain.ilike(request.blockchain),
                     AssetModel.contract_address == request.contract_address,
                     AssetModel.is_active,
                 )
             else:
-                # Нативная монета - contract_address IS NULL
+                # нативная монета - contract_address IS NULL
                 stmt = select(AssetModel).where(
                     AssetModel.blockchain.ilike(request.blockchain),
                     AssetModel.contract_address.is_(None),
@@ -110,7 +99,6 @@ async def get_asset_info_endpoint(
     vault_id: UUID = Query(..., description="Vault ID"),
     db: AsyncSession = Depends(get_db),
 ):
-    """Get asset information and balance in vault."""
     from app.models import WalletModel
     from sqlalchemy import select
 
@@ -145,7 +133,6 @@ async def get_asset_history_endpoint(
     limit: int = Query(100, ge=1, le=1000),
     db: AsyncSession = Depends(get_db),
 ):
-    """Get asset transaction history."""
     transactions, total = await get_asset_history(db, asset_id, skip, limit)
 
     transactions_data = []
@@ -168,7 +155,6 @@ async def get_asset_history_endpoint(
 async def get_asset_addresses_endpoint(
     asset_id: UUID, db: AsyncSession = Depends(get_db)
 ):
-    """Get all addresses for asset across all vaults."""
     wallets = await get_asset_addresses(db, asset_id)
 
     addresses_data = []

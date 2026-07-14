@@ -1,5 +1,3 @@
-"""Transaction model - technical transaction data only."""
-
 import uuid
 from decimal import Decimal
 from datetime import datetime
@@ -27,14 +25,11 @@ if TYPE_CHECKING:
 
 
 class TransactionModel(Base):
-    """Transaction model - only technical data, no business logic."""
-
     __tablename__ = "transactions"
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
-    # External request ID for end-to-end tracing (wd_{uuid})
     request_id: Mapped[str | None] = mapped_column(
         String(50), index=True, comment="External request ID for tracing (from externalTxId)"
     )
@@ -96,7 +91,6 @@ class TransactionModel(Base):
         comment="Updated at",
     )
 
-    # Relationships
     vault: Mapped["VaultModel | None"] = relationship(
         "VaultModel", back_populates="transactions"
     )

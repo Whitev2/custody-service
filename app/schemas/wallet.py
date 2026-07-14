@@ -1,12 +1,8 @@
-"""Wallet schemas."""
-
 import uuid
 from pydantic import BaseModel, ConfigDict
 
 
 class WalletWithVaultResponse(BaseModel):
-    """Ответ с информацией о кошельке и vault."""
-
     model_config = ConfigDict(from_attributes=True)
 
     wallet_id: uuid.UUID

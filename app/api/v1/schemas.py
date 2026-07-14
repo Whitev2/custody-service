@@ -6,11 +6,7 @@ from uuid import UUID
 from pydantic import BaseModel, Field
 
 
-# ============= Asset Schemas =============
-
 class AssetCreateRequest(BaseModel):
-    """Request to create a new asset."""
-    
     symbol: str = Field(..., max_length=20, description="Short symbol: USDT, BTC, ETH")
     display_name: str = Field(..., max_length=100, description="Full name: Tether USD, Bitcoin")
     blockchain: str = Field(..., max_length=50, description="Blockchain: ETHEREUM, TRON, BITCOIN")
@@ -23,8 +19,6 @@ class AssetCreateRequest(BaseModel):
 
 
 class AssetUpdateRequest(BaseModel):
-    """Request to update an asset."""
-    
     display_name: str | None = Field(None, max_length=100)
     decimals: int | None = None
     is_active: bool | None = None
@@ -32,8 +26,6 @@ class AssetUpdateRequest(BaseModel):
 
 
 class AssetResponse(BaseModel):
-    """Asset response."""
-    
     id: UUID
     symbol: str
     display_name: str
@@ -49,25 +41,17 @@ class AssetResponse(BaseModel):
 
 
 class AssetListResponse(BaseModel):
-    """List of assets response."""
-    
     assets: list[AssetResponse]
     total: int
 
 
-# ============= Lookup Response =============
-
 class AssetLookupRequest(BaseModel):
-    """Request to lookup asset for provider resolution."""
-    
     blockchain: str = Field(..., description="Blockchain: ETHEREUM, TRON")
     contract_address: str | None = Field(None, description="Token contract (null for native)")
     testnet: str | None = Field(None, description="Testnet name (null for mainnet)")
 
 
 class FireblocksAssetResponse(BaseModel):
-    """Response with resolved Fireblocks asset ID."""
-    
     asset_id: UUID
     symbol: str
     blockchain: str

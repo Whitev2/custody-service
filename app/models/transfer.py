@@ -1,5 +1,3 @@
-"""Transfer model - outgoing transactions (internal + external)."""
-
 import uuid
 from decimal import Decimal
 from datetime import datetime
@@ -47,13 +45,9 @@ class TransferModel(Base):
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
-
-    # External request ID for tracing (from Backend)
     request_id: Mapped[str] = mapped_column(
         String(50), unique=True, index=True, comment="External request ID for tracing"
     )
-
-    # Transfer type
     is_internal: Mapped[bool] = mapped_column(
         Boolean,
         default=False,
@@ -61,7 +55,7 @@ class TransferModel(Base):
         comment="True for whitelist transfers, False for external",
     )
 
-    # Source wallet (NULL if pending_balance - not yet selected)
+    # NULL пока pending_balance - кошелёк ещё не выбран
     vault_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("vaults.id", ondelete="SET NULL"),
@@ -84,7 +78,7 @@ class TransferModel(Base):
         String(255), comment="Source HOT wallet address"
     )
 
-    # For pending_balance queue - store original request params
+    # для pending_balance очереди - храним исходные параметры запроса
     currency: Mapped[str] = mapped_column(
         String(20), index=True, comment="Asset symbol (ETH, USDT, TRX)"
     )
@@ -100,7 +94,6 @@ class TransferModel(Base):
         String(20), comment="Network (ERC20, TRC20, BEP20, NATIVE, etc.)"
     )
 
-    # Destination
     destination_address: Mapped[str] = mapped_column(
         String(255), index=True, comment="Destination wallet address"
     )
@@ -113,13 +106,10 @@ class TransferModel(Base):
         comment="Destination vault for internal transfers",
     )
 
-    # Amount
     amount: Mapped[Decimal] = mapped_column(Numeric(36, 18), comment="Transfer amount")
     amount_usd: Mapped[Decimal | None] = mapped_column(
         Numeric(18, 2), comment="Amount in USD"
     )
-
-    # Status
     status: Mapped[str] = mapped_column(
         String(30),
         default=TransferStatus.PENDING_APPROVAL.value,
@@ -135,10 +125,8 @@ class TransferModel(Base):
         String(255), index=True, comment="Blockchain transaction hash"
     )
 
-    # Note
     note: Mapped[str | None] = mapped_column(String(500), comment="Optional note")
 
-    # Timestamps
     reserved_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), comment="When balance was reserved"
     )
@@ -155,7 +143,6 @@ class TransferModel(Base):
         comment="Updated at",
     )
 
-    # Error handling
     error_message: Mapped[str | None] = mapped_column(
         Text, comment="Error message if failed"
     )
@@ -163,7 +150,6 @@ class TransferModel(Base):
         default=0, comment="Number of balance reservation attempts"
     )
 
-    # Relationships
     vault: Mapped["VaultModel | None"] = relationship(
         "VaultModel", foreign_keys=[vault_id]
     )
@@ -183,7 +169,6 @@ class TransferModel(Base):
 
     @property
     def is_pending(self) -> bool:
-        """Is transfer still in progress."""
         return self.status in (
             TransferStatus.PENDING_APPROVAL.value,
             TransferStatus.PENDING_BALANCE.value,
@@ -194,7 +179,6 @@ class TransferModel(Base):
 
     @property
     def is_final(self) -> bool:
-        """Is transfer in a final state."""
         return self.status in (
             TransferStatus.COMPLETED.value,
             TransferStatus.REJECTED.value,
@@ -204,7 +188,6 @@ class TransferModel(Base):
 
     @property
     def is_cancellable(self) -> bool:
-        """Can this transfer be cancelled."""
         return self.status in (
             TransferStatus.PENDING_APPROVAL.value,
             TransferStatus.PENDING_BALANCE.value,

@@ -1,9 +1,3 @@
-"""
-Transaction Publishers for Custody Service.
-
-Publishes transfer.created, balance_ready events and backend webhooks.
-"""
-
 import json
 import logging
 from datetime import datetime
@@ -32,7 +26,6 @@ _exchange: Optional[aio_pika.Exchange] = None
 
 
 async def _ensure_connection() -> aio_pika.Exchange:
-    """Ensure we have a connection and return the exchange."""
     global _connection, _channel, _exchange
 
     if _exchange is not None:
@@ -52,7 +45,6 @@ async def _ensure_connection() -> aio_pika.Exchange:
 
 
 async def close_publisher() -> None:
-    """Close the publisher connection."""
     global _connection, _channel, _exchange
 
     if _connection:
@@ -78,31 +70,7 @@ async def publish_transfer_created(
     source_address: Optional[str] = None,
     fireblocks_asset_id: Optional[str] = None,
 ) -> bool:
-    """
-    Publish transfer.created event for external transfers.
-
-    Called when Custody creates a new external transfer request.
-    The message will be consumed by Workflow for AML/Policy processing.
-
-    Note: Balance is reserved BEFORE publishing. source_vault_id and
-    source_address are included so Signer knows where to send from.
-
-    Args:
-        request_id: Unique request ID for tracing
-        destination_address: Destination wallet address
-        destination_tag: Optional memo/tag
-        amount: Transfer amount as decimal string
-        amount_usd: USD equivalent
-        asset: Asset symbol (ETH, USDT)
-        contract_address: Token contract address (null for native)
-        blockchain: Blockchain network
-        source_vault_id: Reserved HOT vault ID (Fireblocks provider ID)
-        source_address: Reserved HOT wallet address
-        fireblocks_asset_id: Fireblocks asset ID (e.g., USDT_TRC20)
-
-    Returns:
-        True if published successfully, False otherwise
-    """
+    # Баланс резервируется ДО publish; source_* нужны Signer'у чтобы знать откуда слать.
     try:
         exchange = await _ensure_connection()
 
@@ -167,25 +135,6 @@ async def publish_balance_ready(
     contract_address: Optional[str],
     blockchain: str,
 ) -> bool:
-    """
-    Publish balance_ready event when HOT wallet balance is reserved.
-
-    Called after approve when Custody successfully reserves balance.
-    The message will be consumed by Workflow to proceed with signing.
-
-    Args:
-        request_id: Unique request ID for tracing
-        source_vault_id: Selected HOT vault ID (Fireblocks provider ID)
-        source_address: HOT wallet address
-        destination_address: Destination wallet address
-        destination_tag: Optional memo/tag
-        amount: Transfer amount as decimal string
-        contract_address: Token contract address (null for native)
-        blockchain: Blockchain network
-
-    Returns:
-        True if published successfully, False otherwise
-    """
     try:
         exchange = await _ensure_connection()
 
@@ -245,38 +194,17 @@ async def publish_custody_webhook(
     confirmations: Optional[int] = None,
     asset_id: Optional[str] = None,
 ) -> bool:
-    """
-    Publish custody deposit webhook to backend via RabbitMQ.
-
-    Sends message to custody.webhook queue for guaranteed delivery.
-    Backend consumer will process it and update invoice/transaction.
-
-    Args:
-        custody_vault_id: Vault UUID from custody service
-        amount: Deposit amount
-        blockchain: Blockchain name (BSC, ETHEREUM, TRON)
-        currency: Currency symbol (USDT, BTC)
-        network: Network type (ERC20, TRC20, BASE_ASSET)
-        status: Transaction status
-        tx_hash: Blockchain transaction hash
-        confirmations: Number of confirmations
-        asset_id: Fireblocks asset ID
-
-    Returns:
-        True if published successfully, False otherwise
-    """
+    # Шлём в очередь custody.webhook (гарантированная доставка), backend обновит invoice/transaction.
     global _connection, _channel
 
     try:
-        # Ensure connection
         if _connection is None or _connection.is_closed:
             _connection = await aio_pika.connect_robust(cfg.rabbitmq.connection_string)
             log.info("Custody Publisher connection established for webhooks")
-        
+
         if _channel is None or _channel.is_closed:
             _channel = await _connection.channel()
 
-        # Declare queue to ensure it exists
         queue = await _channel.declare_queue(
             CUSTODY_WEBHOOK_QUEUE,
             durable=True,
@@ -304,7 +232,7 @@ async def publish_custody_webhook(
             },
         )
 
-        # Publish directly to queue via default exchange
+        # publish напрямую в очередь через default exchange
         await _channel.default_exchange.publish(
             message,
             routing_key=CUSTODY_WEBHOOK_QUEUE,

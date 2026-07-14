@@ -13,7 +13,6 @@ class HTTPClient:
     @classmethod
     def initialize(cls):
         if cls.session is None:
-            # Use specific timeout or default settings if needed
             timeout = aiohttp.ClientTimeout(total=30)
             cls.session = aiohttp.ClientSession(timeout=timeout)
 

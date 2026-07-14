@@ -1,11 +1,7 @@
-"""Enums for Fireblocks API."""
-
 from enum import Enum
 
 
 class TransactionStatusEnum(str, Enum):
-    """Fireblocks transaction statuses."""
-
     SUBMITTED = "SUBMITTED"
     QUEUED = "QUEUED"
     PENDING_SIGNATURE = "PENDING_SIGNATURE"
@@ -28,8 +24,6 @@ class TransactionStatusEnum(str, Enum):
 
 
 class TransactionOperationEnum(str, Enum):
-    """Transaction operation types."""
-
     TRANSFER = "TRANSFER"
     MINT = "MINT"
     BURN = "BURN"
@@ -44,8 +38,6 @@ class TransactionOperationEnum(str, Enum):
 
 
 class PeerTypeEnum(str, Enum):
-    """Transaction source/destination types."""
-
     VAULT_ACCOUNT = "VAULT_ACCOUNT"
     EXCHANGE_ACCOUNT = "EXCHANGE_ACCOUNT"
     INTERNAL_WALLET = "INTERNAL_WALLET"

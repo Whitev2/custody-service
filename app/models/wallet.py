@@ -1,5 +1,3 @@
-"""Wallet model - stores balance for each asset in vault."""
-
 import uuid
 from decimal import Decimal
 from datetime import datetime
@@ -18,8 +16,6 @@ if TYPE_CHECKING:
 
 
 class WalletModel(Base):
-    """Wallet model - address and balance for asset in vault."""
-
     __tablename__ = "wallets"
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -63,7 +59,6 @@ class WalletModel(Base):
         comment="Updated at",
     )
 
-    # Relationships
     vault: Mapped["VaultModel"] = relationship("VaultModel", back_populates="wallets")
     asset: Mapped["AssetModel"] = relationship("AssetModel", back_populates="wallets")
     transactions: Mapped[list["TransactionModel"]] = relationship(
@@ -75,9 +70,7 @@ class WalletModel(Base):
     
     @property
     def available_balance(self) -> Decimal:
-        """Available balance after pending reservations."""
         return self.balance - self.pending_amount
-    
+
     def has_sufficient_balance(self, amount: Decimal) -> bool:
-        """Check if wallet has sufficient available balance."""
         return self.available_balance >= amount

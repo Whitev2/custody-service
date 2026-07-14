@@ -15,22 +15,16 @@ config = context.config
 
 
 def get_db_url() -> str:
-    """
-    Получить URL подключения к БД.
-    Для local - статичный URL из cfg.
-    Для dev/prod (CI/CD миграции) - креды мигратора из Vault KV secrets.
-    """
+    # local - статичный URL из cfg, dev/prod - креды мигратора из Vault
     stand = os.getenv("STAND", "local")
 
     if stand == "local":
-        # Local: используем статичный URL
         return cfg.database.connection_string.replace("postgresql+asyncpg://", "postgresql+psycopg2://")
 
     try:
         from app.services.vault_client import vault_client
 
 
-        # Dev/Prod: получаем креды мигратора и название БД из Vault KV secrets
         db_secrets = vault_client.get_secret("database")
         migrator_user = db_secrets.get("MIGRATOR_USER")
         migrator_password = db_secrets.get("MIGRATOR_PASSWORD")
@@ -61,7 +55,6 @@ def get_db_url() -> str:
         raise
 
 
-# Используем синхронный psycopg2 для миграций
 db_url = get_db_url()
 config.set_main_option("sqlalchemy.url", db_url)
 
@@ -94,29 +87,18 @@ def do_run_migrations(connection: Connection) -> None:
 
 
 def run_migrations_online() -> None:
-    """Run migrations in 'online' mode.
-
-    Используем синхронный psycopg2 вместо asyncpg для избежания проблем
-    с prepared statements при работе через Odyssey pooler.
-
-    Важно: use_native_hstore=False отключает запрос hstore OIDs,
-    который несовместим с Odyssey в transaction pooling mode.
-
-    Retry логика для обработки временных сбоев Odyssey auth_query.
-    """
-
+    # синхронный psycopg2 вместо asyncpg + use_native_hstore=False -
+    # иначе Odyssey в transaction pooling mode ломается на prepared statements / hstore OIDs
     connectable = create_engine(
         config.get_main_option("sqlalchemy.url"),
         poolclass=pool.NullPool,
-        # Отключаем hstore для совместимости с Odyssey transaction pooling
         connect_args={
             "options": "-c timezone=UTC"
         },
-        # Отключаем автоматическое определение hstore
         use_native_hstore=False,
     )
 
-    # Retry логика для временных сбоев Odyssey
+    # retry для временных сбоев Odyssey
     max_retries = 3
     retry_delay = 2  # секунды
 
@@ -130,11 +112,9 @@ def run_migrations_online() -> None:
 
                 with context.begin_transaction():
                     context.run_migrations()
-            # Успешно - выходим из цикла
             break
         except OperationalError as e:
             error_msg = str(e)
-            # Retry для временных сбоев Odyssey:
             retryable_errors = [
                 "failed to make auth query",
                 "server closed the connection",

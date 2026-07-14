@@ -1,8 +1,4 @@
-"""
-Centralized payout callback service.
-
-All payout status notifications to backend go through this single module.
-"""
+"""Единая точка для всех payout-колбэков в backend."""
 
 from typing import Literal
 
@@ -16,16 +12,6 @@ PayoutStatus = Literal["completed", "failed", "rejected", "cancelled"]
 async def notify_backend_payout_status(
     request_id: str, status: PayoutStatus, tx_hash: str | None = None
 ) -> None:
-    """
-    Notify backend about payout status change.
-
-    This is the SINGLE place for all payout callbacks.
-
-    Args:
-        request_id: Transfer request_id (UUID string)
-        status: One of: completed, failed, rejected, cancelled
-        tx_hash: Transaction hash (optional)
-    """
     backend_url = cfg.app.BACKEND_URL
     if not backend_url:
         log.warning(

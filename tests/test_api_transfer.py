@@ -1,7 +1,3 @@
-"""
-Tests for Transfer API endpoints.
-"""
-
 import pytest
 from decimal import Decimal
 from uuid import uuid4
@@ -14,7 +10,6 @@ from app.models import VaultModel, AssetModel, WalletModel
 
 
 class TestTransferAPI:
-    """Tests for /transfer endpoints."""
 
     @pytest.mark.asyncio
     async def test_create_internal_transfer_success(
@@ -25,8 +20,6 @@ class TestTransferAPI:
         test_asset: AssetModel,
         test_wallet: WalletModel,
     ):
-        """Test successful internal transfer."""
-        # Create destination vault and wallet
         dest_vault = VaultModel(
             id=uuid4(),
             provider_vault_id=f"fb_vault_dest_{uuid4().hex[:8]}",
@@ -47,7 +40,6 @@ class TestTransferAPI:
         test_session.add(dest_wallet)
         await test_session.commit()
 
-        # Mock provider
         mock_provider = AsyncMock()
         mock_provider.create_transaction = AsyncMock(
             return_value={
@@ -87,7 +79,6 @@ class TestTransferAPI:
         test_asset: AssetModel,
         test_wallet: WalletModel,
     ):
-        """Test internal transfer with insufficient balance."""
         dest_vault_id = uuid4()
 
         response = await client.post(
@@ -107,7 +98,6 @@ class TestTransferAPI:
     async def test_create_internal_transfer_vault_not_found(
         self, client: AsyncClient, test_asset: AssetModel
     ):
-        """Test internal transfer with non-existent vault."""
         fake_vault_id = uuid4()
 
         response = await client.post(
@@ -130,7 +120,6 @@ class TestTransferAPI:
         test_asset: AssetModel,
         test_wallet: WalletModel,
     ):
-        """Test successful external transfer."""
         mock_provider = AsyncMock()
         mock_provider.create_transaction = AsyncMock(
             return_value={
@@ -165,7 +154,6 @@ class TestTransferAPI:
         test_asset: AssetModel,
         test_wallet: WalletModel,
     ):
-        """Test external transfer with insufficient balance."""
         response = await client.post(
             "/transfer/external/create",
             json={
@@ -187,7 +175,6 @@ class TestTransferAPI:
         test_asset: AssetModel,
         test_wallet: WalletModel,
     ):
-        """Test external transfer with workflow ID."""
         workflow_id = str(uuid4())
 
         mock_provider = AsyncMock()
@@ -221,7 +208,6 @@ class TestTransferAPI:
         test_asset: AssetModel,
         test_wallet: WalletModel,
     ):
-        """Test internal transfer to address not in whitelist."""
         mock_provider = AsyncMock()
         mock_provider.get_whitelist_addresses = AsyncMock(
             return_value=[]

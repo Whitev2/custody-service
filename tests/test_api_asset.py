@@ -1,7 +1,3 @@
-"""
-Tests for Asset API endpoints.
-"""
-
 import pytest
 from uuid import uuid4
 from unittest.mock import patch, AsyncMock
@@ -12,13 +8,10 @@ from app.models import VaultModel, AssetModel, WalletModel, TransactionModel
 
 
 class TestAssetAPI:
-    """Tests for /asset endpoints."""
-
     @pytest.mark.asyncio
     async def test_create_asset_success(
         self, client: AsyncClient, test_vault: VaultModel, test_asset: AssetModel
     ):
-        """Test successful asset creation in vault."""
         mock_provider = AsyncMock()
         mock_provider.activate_asset = AsyncMock(
             return_value={
@@ -48,7 +41,6 @@ class TestAssetAPI:
     async def test_create_asset_vault_not_found(
         self, client: AsyncClient, test_asset: AssetModel
     ):
-        """Test asset creation with non-existent vault."""
         fake_vault_id = uuid4()
 
         response = await client.post(
@@ -66,7 +58,6 @@ class TestAssetAPI:
     async def test_create_asset_asset_not_found(
         self, client: AsyncClient, test_vault: VaultModel
     ):
-        """Test asset creation with non-existent asset."""
         fake_asset_id = uuid4()
 
         response = await client.post(
@@ -84,7 +75,6 @@ class TestAssetAPI:
     async def test_get_asset_info_success(
         self, client: AsyncClient, test_wallet: WalletModel
     ):
-        """Test getting asset info."""
         response = await client.get(
             f"/asset/{test_wallet.asset_id}/info",
             params={"vault_id": str(test_wallet.vault_id)},
@@ -100,7 +90,6 @@ class TestAssetAPI:
     async def test_get_asset_info_not_found(
         self, client: AsyncClient, test_vault: VaultModel
     ):
-        """Test getting non-existent asset info."""
         fake_asset_id = uuid4()
 
         response = await client.get(
@@ -114,7 +103,6 @@ class TestAssetAPI:
     async def test_get_asset_history_empty(
         self, client: AsyncClient, test_asset: AssetModel
     ):
-        """Test getting asset history when empty."""
         response = await client.get(f"/asset/{test_asset.id}/history")
 
         assert response.status_code == 200
@@ -127,7 +115,6 @@ class TestAssetAPI:
     async def test_get_asset_history_with_data(
         self, client: AsyncClient, test_transaction: TransactionModel
     ):
-        """Test getting asset history with transactions."""
         response = await client.get(f"/asset/{test_transaction.asset_id}/history")
 
         assert response.status_code == 200
@@ -139,7 +126,6 @@ class TestAssetAPI:
     async def test_get_asset_history_pagination(
         self, client: AsyncClient, test_transaction: TransactionModel
     ):
-        """Test getting asset history with pagination."""
         response = await client.get(
             f"/asset/{test_transaction.asset_id}/history",
             params={"skip": 0, "limit": 10},
@@ -154,7 +140,6 @@ class TestAssetAPI:
     async def test_get_asset_addresses_success(
         self, client: AsyncClient, test_wallet: WalletModel
     ):
-        """Test getting all addresses for asset."""
         response = await client.get(f"/asset/{test_wallet.asset_id}/addresses")
 
         assert response.status_code == 200
@@ -167,7 +152,6 @@ class TestAssetAPI:
     async def test_get_asset_addresses_empty(
         self, client: AsyncClient, test_asset: AssetModel
     ):
-        """Test getting addresses when no wallets exist."""
         response = await client.get(f"/asset/{test_asset.id}/addresses")
 
         assert response.status_code == 200

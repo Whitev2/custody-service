@@ -1,5 +1,3 @@
-"""Schemas package."""
-
 from .vault import (
     VaultCreateRequest,
     VaultCreateResponse,

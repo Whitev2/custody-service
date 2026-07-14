@@ -45,13 +45,7 @@ log = logging.getLogger(__name__)
 router = APIRouter(prefix="/transfer", tags=["Transfer"])
 
 
-# ============================================================================
-# Helper Functions
-# ============================================================================
-
-
 def _transfer_to_response(transfer: TransferModel) -> TransferResponse:
-    """Convert TransferModel to TransferResponse."""
     return TransferResponse(
         transfer_id=transfer.id,
         request_id=transfer.request_id,
@@ -76,11 +70,6 @@ def _transfer_to_response(transfer: TransferModel) -> TransferResponse:
     )
 
 
-# ============================================================================
-# External Transfer Endpoints (Approval First Flow)
-# ============================================================================
-
-
 @router.post(
     "/external/create",
     status_code=status.HTTP_202_ACCEPTED,
@@ -90,15 +79,8 @@ async def create_external_transfer(
     request: ExternalTransferRequest,
     db: AsyncSession = Depends(get_db),
 ) -> TransferResponse:
-    """
-    Create external transfer with Upfront Reserve flow.
-
-    1. Reserves balance on HOT wallet FIRST
-    2. If balance OK: status=PENDING_APPROVAL, publishes transfer.created
-    3. If no balance: status=PENDING_BALANCE, waits in queue (no publish)
-
-    Workflow will consume the event, do AML/Policy check, then publish approve/reject.
-    """
+    # Upfront Reserve: сначала резервим баланс на HOT, потом статус.
+    # есть баланс -> PENDING_APPROVAL + publish; нет -> PENDING_BALANCE, ждём в очереди (без publish)
     log.info(
         "Creating external transfer",
         extra={
@@ -110,7 +92,6 @@ async def create_external_transfer(
     )
 
     try:
-        # Check if transfer already exists
         existing = await get_transfer_by_request_id(db, request.request_id)
         if existing:
             raise HTTPException(
@@ -118,7 +99,7 @@ async def create_external_transfer(
                 detail=f"Transfer with request_id '{request.request_id}' already exists",
             )
 
-        # Try to reserve balance on HOT wallet FIRST
+        # резервим баланс на HOT wallet ДО создания трансфера
         source_vault_id = None
         source_address = None
         wallet = None
@@ -147,7 +128,7 @@ async def create_external_transfer(
                 },
             )
         except NoHotWalletError as e:
-            # Пробуем автоматически активировать ассет в HOT кошельке
+            # пробуем авто-активировать ассет в HOT кошельке
             log.info(
                 f"No HOT wallet for asset, trying to auto-activate: {e}",
                 extra={"request_id": request.request_id},
@@ -160,7 +141,7 @@ async def create_external_transfer(
             )
             
             if asset_activated:
-                # Повторяем попытку резервирования после активации
+                # ретраим резервирование после активации
                 try:
                     wallet, vault, asset = await select_and_reserve_hot_wallet(
                         db=db,
@@ -199,7 +180,6 @@ async def create_external_transfer(
             )
             balance_reserved = False
 
-        # Create transfer with appropriate status
         transfer_status = (
             TransferStatus.PENDING_APPROVAL
             if balance_reserved
@@ -221,7 +201,6 @@ async def create_external_transfer(
             status=transfer_status,
         )
 
-        # If balance reserved, update transfer with wallet info
         if balance_reserved and wallet and vault and asset:
             transfer.vault_id = vault.id
             transfer.wallet_id = wallet.id
@@ -231,7 +210,7 @@ async def create_external_transfer(
 
         await db.commit()
 
-        # Only publish to workflow if balance is reserved
+        # publish в workflow только если баланс зарезервирован
         if balance_reserved:
             published = await publish_transfer_created(
                 request_id=request.request_id,
@@ -271,7 +250,6 @@ async def create_external_transfer(
                 },
             )
 
-        # Reload with relationships
         transfer = await get_transfer_by_request_id(db, request.request_id)
 
         return _transfer_to_response(transfer)
@@ -287,11 +265,6 @@ async def create_external_transfer(
         )
 
 
-# ============================================================================
-# Internal Transfer Endpoints (No Approval Required)
-# ============================================================================
-
-
 @router.post(
     "/internal/create",
     response_model=TransferResponse,
@@ -301,15 +274,7 @@ async def create_internal_transfer(
     request: InternalTransferRequest,
     db: AsyncSession = Depends(get_db),
 ) -> TransferResponse:
-    """
-    Create internal transfer (whitelist only).
-
-    1. Validates source vault and wallet
-    2. Checks whitelist if to_address is provided
-    3. Reserves balance immediately
-    4. Creates transaction in Fireblocks
-    5. Returns transfer with provider_tx_id
-    """
+    # internal = whitelist only, без approval. резерв сразу + tx в Fireblocks
     log.info(
         "Creating internal transfer",
         extra={
@@ -319,7 +284,6 @@ async def create_internal_transfer(
         },
     )
 
-    # Check if transfer already exists
     existing = await get_transfer_by_request_id(db, request.request_id)
     if existing:
         raise HTTPException(
@@ -327,17 +291,14 @@ async def create_internal_transfer(
             detail=f"Transfer with request_id '{request.request_id}' already exists",
         )
 
-    # Get source vault
     from_vault = await db.get(VaultModel, request.from_vault_id)
     if not from_vault:
         raise HTTPException(status_code=404, detail="Source vault not found")
 
-    # Get asset
     asset = await db.get(AssetModel, request.asset_id)
     if not asset:
         raise HTTPException(status_code=404, detail="Asset not found")
 
-    # Get source wallet
     stmt = select(WalletModel).where(
         WalletModel.vault_id == request.from_vault_id,
         WalletModel.asset_id == request.asset_id,
@@ -347,7 +308,6 @@ async def create_internal_transfer(
     if not from_wallet:
         raise HTTPException(status_code=404, detail="Source wallet not found")
 
-    # Check balance
     amount = Decimal(request.amount)
     if not from_wallet.has_sufficient_balance(amount):
         raise HTTPException(
@@ -355,7 +315,6 @@ async def create_internal_transfer(
             detail=f"Insufficient balance. Available: {from_wallet.available_balance}, Required: {amount}",
         )
 
-    # Determine destination
     to_address = None
     to_vault_id = None
 
@@ -364,7 +323,6 @@ async def create_internal_transfer(
         if not to_vault:
             raise HTTPException(status_code=404, detail="Destination vault not found")
 
-        # Get destination wallet address
         stmt = select(WalletModel).where(
             WalletModel.vault_id == request.to_vault_id,
             WalletModel.asset_id == request.asset_id,
@@ -380,7 +338,6 @@ async def create_internal_transfer(
     elif request.to_address:
         to_address = request.to_address
 
-        # Check whitelist
         provider = get_provider()
         whitelist = await provider.get_whitelist_addresses(
             from_vault.provider_vault_id, asset.asset
@@ -398,7 +355,6 @@ async def create_internal_transfer(
         )
 
     try:
-        # Reserve balance
         from app.dao.transfer import reserve_balance
 
         reserved = await reserve_balance(db, from_wallet.id, amount)
@@ -408,15 +364,12 @@ async def create_internal_transfer(
                 detail="Failed to reserve balance (concurrent modification)",
             )
 
-        # Create transaction in Fireblocks
         provider = get_provider()
 
         if to_vault_id:
-            # Use destination vault
             to_vault = await db.get(VaultModel, to_vault_id)
             destination = {"type": "VAULT_ACCOUNT", "id": to_vault.provider_vault_id}
         else:
-            # Use whitelist address
             destination = {
                 "type": "ONE_TIME_ADDRESS",
                 "oneTimeAddress": {"address": to_address},
@@ -434,7 +387,6 @@ async def create_internal_transfer(
 
         fb_tx = await provider.create_transaction(tx_data)
 
-        # Create transfer record
         transfer = await create_transfer(
             db=db,
             request_id=request.request_id,
@@ -455,13 +407,11 @@ async def create_internal_transfer(
             status=TransferStatus.SIGNING,
         )
 
-        # Update with Fireblocks transaction ID
         transfer.provider_tx_id = fb_tx["id"]
         transfer.tx_hash = fb_tx.get("txHash")
 
         await db.commit()
 
-        # Reload with relationships
         transfer = await get_transfer_by_request_id(db, request.request_id)
 
         log.info(
@@ -486,11 +436,6 @@ async def create_internal_transfer(
         )
 
 
-# ============================================================================
-# Transfer Lifecycle Endpoints
-# ============================================================================
-
-
 @router.get(
     "/{request_id}",
     response_model=TransferResponse,
@@ -500,7 +445,6 @@ async def get_transfer_status(
     request_id: str,
     db: AsyncSession = Depends(get_db),
 ) -> TransferResponse:
-    """Get transfer status by request_id."""
     transfer = await get_transfer_by_request_id(db, request_id)
 
     if not transfer:
@@ -521,15 +465,8 @@ async def approve_transfer(
     request_id: str,
     db: AsyncSession = Depends(get_db),
 ) -> ApproveResponse:
-    """
-    Approve transfer and reserve balance on HOT wallet.
-
-    Called by Workflow after AML/Policy approval.
-
-    1. Reserves balance on best available HOT wallet
-    2. If balance available: status=PENDING, publishes balance_ready
-    3. If insufficient balance: status=PENDING_BALANCE, added to queue
-    """
+    # вызывается Workflow после AML/Policy. резервим баланс на HOT ->
+    # ок: PENDING + publish balance_ready; нет: PENDING_BALANCE, в очередь
     transfer = await get_transfer_by_request_id(db, request_id)
 
     if not transfer:
@@ -538,7 +475,6 @@ async def approve_transfer(
             detail=f"Transfer not found: {request_id}",
         )
 
-    # Only allow approve for PENDING_APPROVAL status
     if transfer.status != TransferStatus.PENDING_APPROVAL.value:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -551,9 +487,8 @@ async def approve_transfer(
     )
 
     try:
-        # Check if balance already reserved (wallet_id set during create)
+        # wallet_id уже проставлен при create -> баланс зарезервирован, просто берём wallet/vault
         if transfer.wallet_id:
-            # Balance already reserved - just need to get wallet/vault info
             wallet = await db.get(WalletModel, transfer.wallet_id)
             vault = await db.get(VaultModel, transfer.vault_id)
             asset = await db.get(AssetModel, transfer.asset_id)
@@ -569,7 +504,6 @@ async def approve_transfer(
                 extra={"request_id": request_id, "wallet_id": str(transfer.wallet_id)},
             )
         else:
-            # Try to reserve balance on HOT wallet
             wallet, vault, asset = await select_and_reserve_hot_wallet(
                 db=db,
                 contract_address=transfer.contract_address,
@@ -577,11 +511,9 @@ async def approve_transfer(
                 amount=transfer.amount,
             )
 
-            # Update transfer with wallet info
             await update_transfer_with_wallet(db, transfer, wallet, vault, asset)
             await db.commit()
 
-        # Publish balance_ready event
         await publish_balance_ready(
             request_id=request_id,
             source_vault_id=vault.provider_vault_id,
@@ -611,7 +543,7 @@ async def approve_transfer(
         )
 
     except (NoHotWalletError, InsufficientBalanceError) as e:
-        # No balance available - add to pending_balance queue
+        # нет баланса - в pending_balance очередь
         log.warning(
             f"Insufficient balance for approved transfer, adding to queue: {e}",
             extra={"request_id": request_id},
@@ -646,11 +578,7 @@ async def reject_transfer(
     request: RejectRequest,
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    """
-    Reject transfer (no balance to release since Approval First).
-
-    Called by Workflow when AML/Policy rejects the transaction.
-    """
+    # вызывается Workflow при reject от AML/Policy
     transfer = await get_transfer_by_request_id(db, request_id)
 
     if not transfer:
@@ -665,11 +593,10 @@ async def reject_transfer(
             detail=f"Transfer already finalized: {transfer.status}",
         )
 
-    # Release reserve if balance was reserved (PENDING status)
+    # если баланс был зарезервирован (PENDING) - освобождаем
     if transfer.status == TransferStatus.PENDING.value and transfer.wallet_id:
         await release_reserve(db, transfer.wallet_id, transfer.amount)
 
-    # Update status
     await update_transfer_status(
         db=db,
         request_id=request_id,
@@ -693,11 +620,7 @@ async def update_transfer_signing(
     request: SigningRequest,
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    """
-    Update transfer to signing status.
-
-    Called by Workflow/Signer when transaction is submitted to Fireblocks.
-    """
+    # вызывается Workflow/Signer когда tx отправлена в Fireblocks
     transfer = await get_transfer_by_request_id(db, request_id)
 
     if not transfer:
@@ -731,12 +654,7 @@ async def complete_transfer(
     request: CompleteRequest,
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    """
-    Complete transfer when transaction is confirmed.
-
-    Called by webhook handler when Fireblocks confirms the transaction.
-    Releases reserved balance and deducts from wallet.
-    """
+    # вызывается webhook-хендлером на confirm от Fireblocks: release reserve + списание
     transfer = await get_transfer_by_request_id(db, request_id)
 
     if not transfer:
@@ -751,7 +669,6 @@ async def complete_transfer(
             detail=f"Transfer already finalized: {transfer.status}",
         )
 
-    # Complete balance (release reserve + deduct)
     if transfer.wallet_id:
         completed = await complete_transfer_balance(
             db=db,
@@ -766,7 +683,6 @@ async def complete_transfer(
                 detail="Failed to update wallet balance",
             )
 
-    # Update status
     await update_transfer_status(
         db=db,
         request_id=request_id,
@@ -790,11 +706,7 @@ async def cancel_transfer_endpoint(
     request: CancelRequest,
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    """
-    Cancel a transfer (only pending_approval, pending_balance or pending).
-
-    If balance was reserved, it will be released.
-    """
+    # только pending_approval/pending_balance/pending. если баланс резервился - освободится
     transfer = await get_transfer_by_request_id(db, request_id)
 
     if not transfer:
@@ -832,11 +744,6 @@ async def cancel_transfer_endpoint(
         )
 
 
-# ============================================================================
-# Queue Statistics
-# ============================================================================
-
-
 @router.get(
     "/queue/stats",
     response_model=QueueStatsResponse,
@@ -845,11 +752,6 @@ async def cancel_transfer_endpoint(
 async def get_queue_stats(
     db: AsyncSession = Depends(get_db),
 ) -> QueueStatsResponse:
-    """
-    Get statistics for the pending_balance queue.
-
-    Returns count, total amount, and age of oldest pending transfer.
-    """
     stats = await get_pending_balance_queue_stats(db)
     return QueueStatsResponse(**stats)
 
@@ -862,17 +764,12 @@ async def process_queue(
     db: AsyncSession = Depends(get_db),
     limit: int = 10,
 ) -> dict:
-    """
-    Process transfers waiting in pending_balance queue.
-    
-    Tries to reserve balance and send transfers that were waiting for funds.
-    """
+    """Обработать трансферы из pending_balance очереди (ждали денег на HOT)."""
     from app.models.transfer import TransferModel
     from app.enums.status import TransferStatus
     from app.dao.transfer import process_pending_balance_transfer
     from app.broker.publisher import publish_transfer_created
-    
-    # Get pending_balance transfers ordered by created_at
+
     stmt = (
         select(TransferModel)
         .where(TransferModel.status == TransferStatus.PENDING_BALANCE.value)
@@ -888,7 +785,6 @@ async def process_queue(
     for transfer in transfers:
         success = await process_pending_balance_transfer(db, transfer)
         if success:
-            # Get source vault provider_id and fireblocks_asset_id for workflow
             source_vault_id = None
             fireblocks_asset_id = None
             if transfer.vault_id:
@@ -901,8 +797,7 @@ async def process_queue(
                 asset_model = await db.get(AssetModel, transfer.asset_id)
                 if asset_model:
                     fireblocks_asset_id = asset_model.asset
-            
-            # Publish to workflow
+
             await publish_transfer_created(
                 request_id=transfer.request_id,
                 destination_address=transfer.destination_address,

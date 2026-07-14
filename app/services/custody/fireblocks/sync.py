@@ -1,10 +1,6 @@
-"""
-Sync canonical assets from backend.
+# синк canonical AssetModel из backend'а.
+# Fireblocks asset ID НЕ храним - резолвим в рантайме по contract_address / blockchain.
 
-This module syncs assets from the backend service and creates canonical AssetModel records.
-Fireblocks asset IDs are NOT stored - they are resolved dynamically at runtime
-using contract_address (for tokens) or blockchain (for native coins).
-"""
 from uuid import UUID
 
 from sqlalchemy import select
@@ -20,15 +16,10 @@ from app.services.custody.fireblocks.utils import (
 
 
 def _get_testnet_name(is_testnet: bool, blockchain: str) -> str | None:
-    """
-    Get testnet name from environment and blockchain.
-    
-    Returns testnet name like 'SEPOLIA', 'SHASTA' or None for mainnet.
-    """
+    # 'SEPOLIA'/'SHASTA'/... или None для mainnet
     if not is_testnet:
         return None
-    
-    # Map blockchain to testnet names
+
     testnet_map = {
         "ETHEREUM": "SEPOLIA",
         "TRON": "SHASTA", 
@@ -41,25 +32,13 @@ def _get_testnet_name(is_testnet: bool, blockchain: str) -> str | None:
 
 
 async def sync_fireblocks_assets():
-    """
-    Sync assets from backend to create canonical AssetModel records.
-    
-    Workflow:
-    1. Fetch contracts from backend (filtered by testnet/mainnet)
-    2. Create/update canonical assets in our database
-    3. For tokens - link to parent native asset via parent_id
-    
-    Note: Fireblocks asset IDs are NOT stored. They are resolved at runtime
-    using find_asset_by_contract_or_currency() method.
-    """
+    # 1) тянем контракты из backend, 2) создаём/обновляем assets, 3) токены линкуем к нативному через parent_id
     from app.services.custody.factory import get_provider
 
     try:
-        # Determine environment
         is_testnet = cfg.app.is_testnet
         log.info(f"🌍 Environment: {cfg.app.STAND} (is_testnet={is_testnet})")
 
-        # 1. Fetch contracts from backend
         backend_url = cfg.app.BACKEND_URL
         session = http_client.get_session()
 
@@ -76,12 +55,11 @@ async def sync_fireblocks_assets():
             contracts = await response.json()
         log.info(f"📦 Fetched {len(contracts)} contracts from backend")
 
-        # 2. Fetch all assets from Fireblocks (for metadata like decimals)
+        # ассеты из Fireblocks нужны для метаданных (decimals)
         provider = get_provider()
         fb_assets = await provider.get_supported_assets()
         log.info(f"📦 Fetched {len(fb_assets)} assets from Fireblocks")
 
-        # Build index by contract address
         fb_by_address: dict[str, dict] = {}
         fb_by_id: dict[str, dict] = {}
         
@@ -104,15 +82,13 @@ async def sync_fireblocks_assets():
             env_key = "dev" if is_testnet else "prod"
             env_mapping = mapping_native_tokens().get(env_key, {})
 
-            # Split contracts into native and tokens
             native_contracts: list[dict] = []
             token_contracts: list[dict] = []
 
             for contract_info in contracts:
                 contract_address = contract_info.get("contract_address")
                 name = contract_info.get("name", "")
-                
-                # Check if it's a native asset
+
                 fb_asset = fb_by_id.get(name)
                 asset_type = fb_asset.get("type") if fb_asset else None
                 
@@ -125,15 +101,14 @@ async def sync_fireblocks_assets():
                 f"📊 Split contracts: {len(native_contracts)} native, {len(token_contracts)} tokens"
             )
 
-            # Cache for native assets (blockchain -> asset_id)
+            # blockchain -> asset_id
             native_cache: dict[str, UUID] = {}
 
-            # ===== PHASE 1: Native coins =====
+            # phase 1: нативные монеты
             log.info("🔵 Phase 1: Loading native assets...")
             for contract_info in native_contracts:
                 symbol = contract_info.get("name", "").upper()
-                
-                # Get metadata from mapping
+
                 mapped_meta = env_mapping.get(symbol)
                 if not mapped_meta:
                     log.warning(f"⚠️ Native asset {symbol} not in mapping, skipping")
@@ -144,13 +119,11 @@ async def sync_fireblocks_assets():
                 currency = mapped_meta["currency"]
                 network = mapped_meta["network"]
                 testnet_name = _get_testnet_name(is_testnet, blockchain)
-                
-                # Get decimals from Fireblocks
+
                 fb_asset_id = mapped_meta.get("asset_id", symbol)
                 fb_asset = fb_by_id.get(fb_asset_id)
                 decimals = fb_asset.get("decimals", 18) if fb_asset else 18
 
-                # Find or create asset for this provider
                 stmt = select(AssetModel).where(
                     AssetModel.provider == "fireblocks",
                     AssetModel.blockchain == blockchain,
@@ -165,7 +138,6 @@ async def sync_fireblocks_assets():
                 existing = result.scalar_one_or_none()
 
                 if existing:
-                    # Update existing
                     existing.asset = fb_asset_id
                     existing.symbol = currency
                     existing.display_name = contract_info.get("display_name", currency)
@@ -176,7 +148,6 @@ async def sync_fireblocks_assets():
                     native_cache[blockchain] = existing.id
                     log.debug(f"🔄 Updated native: {currency} on {blockchain}")
                 else:
-                    # Create new
                     native_asset = AssetModel(
                         asset=fb_asset_id,
                         provider="fireblocks",
@@ -202,33 +173,30 @@ async def sync_fireblocks_assets():
                 f"✅ Phase 1 complete: {created} created, {updated} updated, {skipped} skipped"
             )
 
-            # Reset counters for phase 2
             phase2_created = 0
             phase2_updated = 0
             phase2_skipped = 0
 
-            # ===== PHASE 2: Tokens =====
+            # phase 2: токены
             log.info("🟢 Phase 2: Loading token assets...")
             for contract_info in token_contracts:
                 contract_address = contract_info.get("contract_address")
                 symbol = contract_info.get("name", "")
-                
+
                 if not contract_address:
                     log.warning(f"⚠️ Token {symbol} has no contract_address, skipping")
                     phase2_skipped += 1
                     continue
 
-                # Find Fireblocks asset by contract
                 fb_asset = fb_by_address.get(contract_address.lower())
                 if not fb_asset:
                     fb_asset = fb_by_id.get(symbol)
-                
+
                 if not fb_asset:
                     log.warning(f"⚠️ Fireblocks asset not found for {symbol} ({contract_address})")
                     phase2_skipped += 1
                     continue
 
-                # Extract metadata
                 fb_asset_id = fb_asset.get("id", "")
                 metadata = parse_fireblocks_asset(fb_asset_id, fb_asset)
                 if not metadata:
@@ -241,14 +209,12 @@ async def sync_fireblocks_assets():
                 network = metadata["network"]
                 testnet_name = _get_testnet_name(is_testnet, blockchain)
                 decimals = fb_asset.get("decimals", 18)
-                
-                # Get contract address from Fireblocks
+
                 fb_contract = fb_asset.get("contractAddress") or fb_asset.get("issuerAddress") or contract_address
 
-                # Link to parent native asset
+                # линкуем к родительскому нативному ассету
                 parent_id = native_cache.get(blockchain)
                 if not parent_id:
-                    # Try to find native asset in DB for this provider
                     stmt = select(AssetModel).where(
                         AssetModel.provider == "fireblocks",
                         AssetModel.blockchain == blockchain,
@@ -264,7 +230,6 @@ async def sync_fireblocks_assets():
                         parent_id = native_asset.id
                         native_cache[blockchain] = parent_id
 
-                # Find or create token for this provider
                 stmt = select(AssetModel).where(
                     AssetModel.provider == "fireblocks",
                     AssetModel.contract_address == fb_contract,
@@ -278,7 +243,6 @@ async def sync_fireblocks_assets():
                 existing = result.scalar_one_or_none()
 
                 if existing:
-                    # Update existing
                     existing.asset = fb_asset_id
                     existing.symbol = currency
                     existing.display_name = contract_info.get("display_name", currency)
@@ -291,7 +255,6 @@ async def sync_fireblocks_assets():
                     phase2_updated += 1
                     log.debug(f"🔄 Updated token: {currency} ({fb_contract})")
                 else:
-                    # Create new
                     token_asset = AssetModel(
                         asset=fb_asset_id,
                         provider="fireblocks",
@@ -315,7 +278,6 @@ async def sync_fireblocks_assets():
                 f"✅ Phase 2 complete: {phase2_created} created, {phase2_updated} updated, {phase2_skipped} skipped"
             )
 
-            # Summary
             total_created = created + phase2_created
             total_updated = updated + phase2_updated
             total_skipped = skipped + phase2_skipped
@@ -325,4 +287,4 @@ async def sync_fireblocks_assets():
 
     except Exception as e:
         log.error(f"❌ Failed to sync assets: {e}", exc_info=True)
-        # Don't fail startup - assets can be synced manually later
+        # не валим старт - assets можно синкнуть вручную позже

@@ -1,11 +1,7 @@
-"""Webhook schemas for Fireblocks."""
-
 from pydantic import BaseModel, Field
 
 
 class TransferPeerPathSchema(BaseModel):
-    """Transaction source or destination."""
-
     type: str
     id: str | None = None
     name: str | None = None
@@ -14,8 +10,6 @@ class TransferPeerPathSchema(BaseModel):
 
 
 class AmountInfoSchema(BaseModel):
-    """Transaction amount information."""
-
     amount: str | None = None
     requestedAmount: str | None = None
     netAmount: str | None = None
@@ -23,23 +17,17 @@ class AmountInfoSchema(BaseModel):
 
 
 class FeeInfoSchema(BaseModel):
-    """Fee information."""
-
     networkFee: str | None = None
     serviceFee: str | None = None
     gasPrice: str | None = None
 
 
 class BlockInfoSchema(BaseModel):
-    """Block information."""
-
     blockHeight: str | None = None
     blockHash: str | None = None
 
 
 class TransactionDetailsSchema(BaseModel):
-    """Transaction details from Fireblocks webhook."""
-
     id: str
     externalTxId: str | None = None
     status: str
@@ -81,8 +69,6 @@ class TransactionDetailsSchema(BaseModel):
 
 
 class FireblocksWebhookPayloadSchema(BaseModel):
-    """Fireblocks webhook payload structure."""
-
     id: str = Field(..., description="Unique notification ID")
     resourceId: str | None = Field(None, description="Resource ID (e.g., txId)")
     workspaceId: str = Field(..., description="Fireblocks workspace ID")
@@ -91,20 +77,12 @@ class FireblocksWebhookPayloadSchema(BaseModel):
     data: dict = Field(..., description="Event data")
 
     def get_transaction_details(self) -> TransactionDetailsSchema | None:
-        """Get transaction details if this is a transaction event."""
         if self.eventType.startswith("transaction."):
             return TransactionDetailsSchema(**self.data)
         return None
 
     def is_incoming_deposit(self) -> bool:
-        """
-        Check if this is an incoming deposit event.
-
-        Incoming deposit is a transaction where:
-        - destination.type == VAULT_ACCOUNT
-        - source.type != VAULT_ACCOUNT (external source)
-        - operation == TRANSFER
-        """
+        # входящий депозит: dest = наш vault, source внешний, TRANSFER
         if not self.eventType.startswith("transaction."):
             return False
 
@@ -112,38 +90,25 @@ class FireblocksWebhookPayloadSchema(BaseModel):
         if not tx:
             return False
 
-        # Check if it's a TRANSFER operation
         if tx.operation != "TRANSFER":
             return False
 
-        # Check if destination is our vault
         if not tx.destination or tx.destination.type != "VAULT_ACCOUNT":
             return False
 
-        # Check if source is external (not our vault)
         if tx.source and tx.source.type == "VAULT_ACCOUNT":
             return False
 
         return True
 
     def is_completed_transaction(self) -> bool:
-        """Check if transaction is completed successfully."""
         tx = self.get_transaction_details()
         if not tx:
             return False
         return tx.status == "COMPLETED"
 
     def is_internal_transfer(self) -> bool:
-        """
-        Check if this is an internal transfer between our vaults.
-
-        Internal transfer is a transaction where:
-        - source.type == VAULT_ACCOUNT (from our vault)
-        - destination.type == VAULT_ACCOUNT (to our vault)
-        - operation == TRANSFER
-        
-        Used to update balances when moving funds between HOT/WARM/COLD vaults.
-        """
+        # перевод между нашими vault'ами (HOT/WARM/COLD) - обновляем балансы
         if not self.eventType.startswith("transaction."):
             return False
 
@@ -151,11 +116,9 @@ class FireblocksWebhookPayloadSchema(BaseModel):
         if not tx:
             return False
 
-        # Check if it's a TRANSFER operation
         if tx.operation != "TRANSFER":
             return False
 
-        # Check if both source and destination are our vaults
         if not tx.source or tx.source.type != "VAULT_ACCOUNT":
             return False
         if not tx.destination or tx.destination.type != "VAULT_ACCOUNT":
@@ -164,14 +127,7 @@ class FireblocksWebhookPayloadSchema(BaseModel):
         return True
 
     def is_outgoing_withdrawal(self) -> bool:
-        """
-        Check if this is an outgoing withdrawal/payout event.
-
-        Outgoing withdrawal is a transaction where:
-        - source.type == VAULT_ACCOUNT (from our vault)
-        - destination.type != VAULT_ACCOUNT (external destination)
-        - operation == TRANSFER
-        """
+        # исходящий payout: source = наш vault, dest внешний, TRANSFER
         if not self.eventType.startswith("transaction."):
             return False
 
@@ -179,22 +135,18 @@ class FireblocksWebhookPayloadSchema(BaseModel):
         if not tx:
             return False
 
-        # Check if it's a TRANSFER operation
         if tx.operation != "TRANSFER":
             return False
 
-        # Check if source is our vault
         if not tx.source or tx.source.type != "VAULT_ACCOUNT":
             return False
 
-        # Check if destination is external (not our vault)
         if tx.destination and tx.destination.type == "VAULT_ACCOUNT":
             return False
 
         return True
 
     def is_failed_or_rejected(self) -> bool:
-        """Check if transaction failed or was rejected."""
         tx = self.get_transaction_details()
         if not tx:
             return False
@@ -202,8 +154,6 @@ class FireblocksWebhookPayloadSchema(BaseModel):
 
 
 class WebhookProcessResultSchema(BaseModel):
-    """Webhook processing result."""
-
     status: str = Field(
         ..., description="Processing status (created, updated, skipped, error)"
     )
@@ -219,7 +169,6 @@ class WebhookProcessResultSchema(BaseModel):
 
 
 class WebhookPayload(BaseModel):
-    """Simple webhook payload for testing."""
-
+    # простой payload для тестов
     type: str = Field(..., description="Webhook event type")
     data: dict = Field(default_factory=dict, description="Event data")

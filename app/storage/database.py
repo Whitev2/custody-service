@@ -32,15 +32,8 @@ from app.services.vault_database_service import (
 
 class DatabaseManager:
     """
-    Менеджер подключений к БД с поддержкой статических credentials из Vault.
-
-    Особенности:
-    - Автоматическое обновление подключения при ротации пароля
-    - Проверка соединения через SELECT 1
-    - При ошибке подключения запрашивает обновленные credentials из Vault
-    - Поддержка локальной разработки (STAND=local)
-    - Защита от race condition при параллельных запросах
-    - Проактивное обновление credentials до ротации пароля
+    Менеджер подключений к БД со статическими credentials из Vault.
+    Реинициализация при ротации пароля, ping через SELECT 1, retry, защита от race.
     """
 
     def __init__(self):
@@ -73,12 +66,7 @@ class DatabaseManager:
         }
 
     async def initialize(self, db_url: str = None):
-        """
-        Инициализация или переинициализация подключения.
-
-        Args:
-            db_url: URL подключения
-        """
+        """Инициализация / переинициализация подключения."""
         if db_url is None:
             db_url = self._get_db_url()
 

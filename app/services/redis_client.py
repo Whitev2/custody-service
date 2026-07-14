@@ -1,11 +1,4 @@
-"""
-Redis client for distributed locks and caching.
-
-Based on backend implementation with:
-- Sentinel support for dev/prod
-- Connection pooling
-- Retry logic with exponential backoff
-"""
+"""Redis для distributed locks и кэша. Sentinel + pool + retry с backoff."""
 import asyncio
 import socket
 
@@ -16,7 +9,6 @@ from redis.asyncio.sentinel import Sentinel, MasterNotFoundError
 from app.config import cfg, log
 
 
-# Global connection pool and client
 _redis_pool: ConnectionPool | None = None
 _redis_client: Redis | None = None
 
@@ -31,9 +23,8 @@ async def init_redis() -> None:
     max_retries = 3
     for attempt in range(max_retries):
         try:
-            # For local - use standalone Redis
             log.info(f"Initializing Redis connection (attempt {attempt + 1}/{max_retries})")
-            
+
             if cfg.redis.PASSWORD:
                 url = f"redis://:{cfg.redis.PASSWORD}@{cfg.redis.HOST}:{cfg.redis.PORT}/{cfg.redis.DB}"
             else:
@@ -51,7 +42,6 @@ async def init_redis() -> None:
             )
             _redis_client = Redis(connection_pool=_redis_pool)
 
-            # Test connection
             await _redis_client.ping()
             log.info(f"✅ Redis connected: {cfg.redis.HOST}:{cfg.redis.PORT}/{cfg.redis.DB}")
             return
@@ -67,14 +57,12 @@ async def init_redis() -> None:
                 # Don't raise - Redis is optional for Custody
                 return
 
-            # Exponential backoff
             backoff = (2 ** attempt) + (0.1 * attempt)
             log.info(f"Retrying Redis connection in {backoff:.1f}s...")
             await asyncio.sleep(backoff)
 
 
 async def close_redis() -> None:
-    """Close Redis connection and pool."""
     global _redis_client, _redis_pool
     
     if _redis_client:
@@ -98,49 +86,35 @@ async def get_redis() -> Redis | None:
 
 class DistributedLock:
     """
-    Redis-based distributed lock.
-    
-    Usage:
+    Redis distributed lock. Non-blocking, авто-release по TTL, fallback если Redis лежит.
+
         async with DistributedLock("my-task", ttl=60) as acquired:
             if acquired:
-                # do work - only one pod will execute
-            else:
-                # lock held by another process
-    
-    Features:
-        - Non-blocking (returns immediately if lock held)
-        - Auto-release via TTL (if holder crashes)
-        - Graceful fallback if Redis unavailable
+                ...
     """
 
     def __init__(self, name: str, ttl: int = 300):
-        """
-        Args:
-            name: Lock name (will be prefixed with "lock:")
-            ttl: Lock TTL in seconds (auto-release if holder crashes)
-        """
         self.name = f"lock:{name}"
         self.ttl = ttl
         self._redis: Redis | None = None
         self._acquired = False
 
     async def __aenter__(self) -> bool:
-        """Try to acquire lock."""
         self._redis = await get_redis()
 
         if not self._redis:
-            # Redis not available - allow execution (better than blocking)
+            # Redis недоступен - пускаем выполнение (лучше чем блокировать)
             log.warning(f"⚠️ Redis unavailable, proceeding without lock: {self.name}")
             self._acquired = True
             return True
 
         try:
-            # SET NX with TTL - atomic operation
+            # SET NX + TTL - атомарно
             self._acquired = await self._redis.set(
                 self.name,
                 "1",
-                nx=True,  # Only set if not exists
-                ex=self.ttl,  # TTL in seconds
+                nx=True,
+                ex=self.ttl,
             )
 
             if self._acquired:
@@ -152,12 +126,11 @@ class DistributedLock:
 
         except Exception as e:
             log.error(f"❌ Lock error: {e}")
-            # On error - allow execution
+            # при ошибке - пускаем выполнение
             self._acquired = True
             return True
 
     async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
-        """Release lock."""
         if self._acquired and self._redis:
             try:
                 await self._redis.delete(self.name)

@@ -1,16 +1,10 @@
-"""
-Tests for Pydantic schemas.
-"""
-
 from datetime import datetime
 from uuid import uuid4
 
 
 class TestVaultSchemas:
-    """Tests for vault schemas."""
 
     def test_vault_create_request_valid(self):
-        """Test valid vault create request."""
         from app.schemas.vault import VaultCreateRequest
 
         request = VaultCreateRequest(
@@ -30,7 +24,6 @@ class TestVaultSchemas:
         assert request.auto_fuel is True
 
     def test_vault_create_request_no_name(self):
-        """Test vault create request without name (auto-generated)."""
         from app.schemas.vault import VaultCreateRequest
 
         request = VaultCreateRequest(
@@ -38,11 +31,10 @@ class TestVaultSchemas:
             auto_fuel=False,
         )
 
-        # Name should be None (will be auto-generated in DAO)
+        # name = None, автогенерится в DAO
         assert request.name is None
 
     def test_vault_create_request_empty_assets(self):
-        """Test vault create request with empty assets."""
         from app.schemas.vault import VaultCreateRequest
 
         request = VaultCreateRequest(
@@ -53,7 +45,6 @@ class TestVaultSchemas:
         assert request.assets == []
 
     def test_vault_info_response(self):
-        """Test vault info response schema."""
         from app.schemas.vault import VaultInfoResponse
 
         response = VaultInfoResponse(
@@ -72,10 +63,8 @@ class TestVaultSchemas:
 
 
 class TestAssetSchemas:
-    """Tests for asset schemas."""
 
     def test_asset_create_request(self):
-        """Test asset create request schema."""
         from app.schemas.asset import AssetCreateRequest
 
         request = AssetCreateRequest(
@@ -87,7 +76,6 @@ class TestAssetSchemas:
         assert request.asset_id is not None
 
     def test_asset_info_response(self):
-        """Test asset info response schema."""
         from app.schemas.asset import AssetInfoResponse
 
         response = AssetInfoResponse(
@@ -109,10 +97,8 @@ class TestAssetSchemas:
 
 
 class TestTransferSchemas:
-    """Tests for transfer schemas."""
 
     def test_internal_transfer_request(self):
-        """Test internal transfer request schema."""
         from app.schemas.transfer import InternalTransferRequest
 
         request = InternalTransferRequest(
@@ -127,7 +113,6 @@ class TestTransferSchemas:
         assert request.note == "Test transfer"
 
     def test_external_transfer_request(self):
-        """Test external transfer request schema."""
         from app.schemas.transfer import ExternalTransferRequest
 
         request = ExternalTransferRequest(
@@ -141,11 +126,9 @@ class TestTransferSchemas:
         assert request.amount == "25.0"
 
     def test_transfer_request_invalid_amount(self):
-        """Test transfer request with invalid amount."""
         from app.schemas.transfer import InternalTransferRequest
 
-        # Amount is a string, so validation is lenient
-        # This test passes because string "-10.0" is valid as string
+        # amount - строка, валидация лояльная: "-10.0" проходит
         request = InternalTransferRequest(
             from_vault_id=uuid4(),
             to_vault_id=uuid4(),
@@ -155,7 +138,6 @@ class TestTransferSchemas:
         assert request.amount == "-10.0"
 
     def test_transfer_response(self):
-        """Test transfer response schema."""
         from app.schemas.transfer import TransferResponse
 
         response = TransferResponse(
@@ -176,10 +158,8 @@ class TestTransferSchemas:
 
 
 class TestWhitelistSchemas:
-    """Tests for whitelist schemas."""
 
     def test_whitelist_add_request(self):
-        """Test whitelist add request schema."""
         from app.schemas.whitelist import WhitelistAddRequest
 
         request = WhitelistAddRequest(
@@ -193,7 +173,6 @@ class TestWhitelistSchemas:
         assert request.description == "Test entry"
 
     def test_whitelist_check_request(self):
-        """Test whitelist check request schema."""
         from app.schemas.whitelist import WhitelistCheckRequest
 
         request = WhitelistCheckRequest(
@@ -205,7 +184,6 @@ class TestWhitelistSchemas:
         assert request.address is not None
 
     def test_whitelist_check_response(self):
-        """Test whitelist check response schema."""
         from app.schemas.whitelist import WhitelistCheckResponse
 
         response = WhitelistCheckResponse(
@@ -219,10 +197,8 @@ class TestWhitelistSchemas:
 
 
 class TestWebhookSchemas:
-    """Tests for webhook schemas."""
 
     def test_webhook_payload_transaction(self):
-        """Test webhook payload for transaction."""
         from app.schemas.webhooks import WebhookPayload
 
         payload = WebhookPayload(
@@ -238,7 +214,6 @@ class TestWebhookSchemas:
         assert payload.data["id"] == "fb_tx_123"
 
     def test_webhook_payload_vault_account(self):
-        """Test webhook payload for vault account."""
         from app.schemas.webhooks import WebhookPayload
 
         payload = WebhookPayload(

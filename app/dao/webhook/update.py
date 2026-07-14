@@ -1,5 +1,3 @@
-"""Update transaction from webhook."""
-
 from decimal import Decimal
 
 from sqlalchemy import select
@@ -21,7 +19,6 @@ async def update_transaction(
     tx: TransactionDetailsSchema,
     raw_body: str,
 ) -> WebhookProcessResultSchema:
-    """Update existing transaction record."""
     log.info(
         f"🔄 Updating transaction: id={transaction.id}, "
         f"old_status={transaction.status}, new_status={tx.status}"
@@ -29,13 +26,11 @@ async def update_transaction(
 
     old_status = transaction.status
 
-    # Update status and additional fields
     transaction.status = tx.status
     transaction.tx_hash = tx.txHash or transaction.tx_hash
     transaction.num_confirmations = tx.numOfConfirmations
     transaction.raw_webhook_data = raw_body
 
-    # Update amount if available
     if tx.amountInfo:
         if tx.amountInfo.amount:
             transaction.amount = Decimal(tx.amountInfo.amount)
@@ -52,7 +47,6 @@ async def update_transaction(
     if wallet_info:
         if tx.status == TransactionStatusEnum.COMPLETED.value:
             await update_wallet_balance(db, wallet_info, tx)
-            # Process pending_balance queue after balance update
             await process_pending_balance_queue_for_asset(db, wallet_info)
         await notify_backend_about_deposit(db, wallet_info, tx)
 
@@ -69,7 +63,6 @@ async def update_transaction(
 async def update_wallet_balance(
     db: AsyncSession, wallet_info: WalletInfo, tx: TransactionDetailsSchema
 ) -> None:
-    """Update wallet balance based on webhook data (netAmount/amount)."""
     wallet_id = wallet_info.get("wallet_id")
     asset_id = wallet_info.get("asset_id")
     vault_id = wallet_info.get("vault_id")
@@ -107,10 +100,7 @@ async def update_wallet_balance(
 async def notify_backend_about_deposit(
     db: AsyncSession, wallet_info: WalletInfo, tx: TransactionDetailsSchema
 ) -> None:
-    """Отправить сообщение в RabbitMQ для backend о депозите.
-    
-    Использует очередь custody.webhook для гарантированной доставки.
-    """
+    """Шлём депозит в backend через очередь custody.webhook."""
     from app.broker.publisher import publish_custody_webhook
 
     vault_id = wallet_info.get("vault_id")
@@ -125,13 +115,10 @@ async def notify_backend_about_deposit(
         )
         return
 
-    # Парсим amount
     amount = parse_net_amount_decimal(tx)
-
-    # Маппим статус Fireblocks в статус invoice
     invoice_status = map_fireblocks_to_invoice_status(tx.status)
 
-    # Получаем network из AssetModel вместо парсинга assetId
+    # network берём из AssetModel, а не парсим assetId
     network = "BASE_ASSET"
     if wallet_info.get("asset_id"):
         asset_stmt = select(AssetModel).where(AssetModel.id == wallet_info["asset_id"])
@@ -140,7 +127,6 @@ async def notify_backend_about_deposit(
         if asset and asset.network:
             network = asset.network
 
-    # Публикуем в RabbitMQ для гарантированной доставки
     success = await publish_custody_webhook(
         custody_vault_id=vault_id,
         amount=amount,
@@ -164,11 +150,7 @@ async def process_pending_balance_queue_for_asset(
     db: AsyncSession,
     wallet_info: WalletInfo,
 ) -> None:
-    """
-    Process pending_balance transfers after deposit/balance update.
-    
-    Finds transfers waiting for this asset and tries to reserve balance.
-    """
+    """Разбираем pending_balance трансферы после депозита — резервируем баланс."""
     from sqlalchemy import select
     from app.models.transfer import TransferModel
     from app.enums.status import TransferStatus
@@ -180,13 +162,11 @@ async def process_pending_balance_queue_for_asset(
     
     if not asset_id or not blockchain:
         return
-    
-    # Get asset for contract_address
+
     asset = await db.get(AssetModel, asset_id)
     if not asset:
         return
-    
-    # Find pending_balance transfers for this asset
+
     stmt = (
         select(TransferModel)
         .where(
@@ -209,7 +189,6 @@ async def process_pending_balance_queue_for_asset(
         try:
             success = await process_pending_balance_transfer(db, transfer)
             if success:
-                # Get source vault provider_id and fireblocks_asset_id for workflow
                 source_vault_id = None
                 fireblocks_asset_id = None
                 asset_model = None
@@ -223,8 +202,7 @@ async def process_pending_balance_queue_for_asset(
                     asset_model = await db.get(AssetModel, transfer.asset_id)
                     if asset_model:
                         fireblocks_asset_id = asset_model.asset
-                
-                # Publish to workflow
+
                 await publish_transfer_created(
                     request_id=transfer.request_id,
                     destination_address=transfer.destination_address,

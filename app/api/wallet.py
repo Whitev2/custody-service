@@ -25,20 +25,7 @@ async def get_wallet_endpoint(
     ),
     db: AsyncSession = Depends(get_db),
 ) -> WalletWithVaultResponse:
-    """
-    Получить кошелек для указанного vault и валюты.
-
-    Если vault не существует - создает его.
-    Если asset не активирован - активирует его.
-
-    Args:
-        vault_name: Имя vault
-        currency: Символ валюты
-        contract_address: Адрес контракта (None для нативных)
-
-    Returns:
-        WalletWithVaultResponse с адресом кошелька и vault_id
-    """
+    # нет vault - создаёт, ассет не активирован - активирует
     try:
         wallet_info = await get_or_create_wallet_for_vault(
             db=db,
@@ -69,20 +56,7 @@ async def get_wallet_for_existing_vault_endpoint(
     ),
     db: AsyncSession = Depends(get_db),
 ) -> WalletWithVaultResponse:
-    """
-    Получить кошелек для существующего vault по custody_vault_id.
-
-    Если vault не существует - создает его.
-    Если asset не активирован - активирует его.
-
-    Args:
-        custody_vault_id: ID vault из custody сервиса
-        currency: Символ валюты
-        contract_address: Адрес контракта (None для нативных)
-
-    Returns:
-        WalletWithVaultResponse с адресом кошелька и vault_id
-    """
+    # по custody_vault_id. нет vault - создаёт, ассет не активирован - активирует
     try:
         wallet_info = await get_or_create_wallet_for_existing_vault(
             db=db,

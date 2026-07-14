@@ -1,7 +1,3 @@
-"""
-Tests for Whitelist API endpoints.
-"""
-
 import pytest
 from uuid import uuid4
 from unittest.mock import patch, AsyncMock
@@ -12,13 +8,11 @@ from app.models import VaultModel, AssetModel
 
 
 class TestWhitelistAPI:
-    """Tests for /whitelist endpoints."""
 
     @pytest.mark.asyncio
     async def test_add_whitelist_address_success(
         self, client: AsyncClient, test_vault: VaultModel, test_asset: AssetModel
     ):
-        """Test adding address to whitelist."""
         mock_provider = AsyncMock()
         mock_provider.add_whitelist_address = AsyncMock(
             return_value={
@@ -47,7 +41,6 @@ class TestWhitelistAPI:
     async def test_add_whitelist_vault_not_found(
         self, client: AsyncClient, test_asset: AssetModel
     ):
-        """Test adding to whitelist with non-existent vault."""
         fake_vault_id = uuid4()
 
         response = await client.post(
@@ -66,7 +59,6 @@ class TestWhitelistAPI:
     async def test_add_whitelist_asset_not_found(
         self, client: AsyncClient, test_vault: VaultModel
     ):
-        """Test adding to whitelist with non-existent asset."""
         fake_asset_id = uuid4()
 
         response = await client.post(
@@ -85,7 +77,6 @@ class TestWhitelistAPI:
     async def test_list_whitelist_success(
         self, client: AsyncClient, test_vault: VaultModel
     ):
-        """Test listing whitelist addresses."""
         mock_provider = AsyncMock()
         mock_provider.get_whitelist_addresses = AsyncMock(
             return_value=[
@@ -109,7 +100,6 @@ class TestWhitelistAPI:
     async def test_list_whitelist_with_asset_filter(
         self, client: AsyncClient, test_vault: VaultModel, test_asset: AssetModel
     ):
-        """Test listing whitelist addresses with asset filter."""
         mock_provider = AsyncMock()
         mock_provider.get_whitelist_addresses = AsyncMock(
             return_value=[
@@ -132,7 +122,6 @@ class TestWhitelistAPI:
 
     @pytest.mark.asyncio
     async def test_list_whitelist_vault_not_found(self, client: AsyncClient):
-        """Test listing whitelist for non-existent vault."""
         fake_vault_id = uuid4()
 
         response = await client.get(
@@ -146,7 +135,6 @@ class TestWhitelistAPI:
     async def test_check_whitelist_address_found(
         self, client: AsyncClient, test_vault: VaultModel, test_asset: AssetModel
     ):
-        """Test checking address in whitelist - found."""
         mock_provider = AsyncMock()
         mock_provider.get_whitelist_addresses = AsyncMock(
             return_value=[
@@ -173,7 +161,6 @@ class TestWhitelistAPI:
     async def test_check_whitelist_address_not_found(
         self, client: AsyncClient, test_vault: VaultModel, test_asset: AssetModel
     ):
-        """Test checking address in whitelist - not found."""
         mock_provider = AsyncMock()
         mock_provider.get_whitelist_addresses = AsyncMock(return_value=[])
 
@@ -196,7 +183,6 @@ class TestWhitelistAPI:
     async def test_remove_whitelist_success(
         self, client: AsyncClient, test_vault: VaultModel
     ):
-        """Test removing address from whitelist."""
         mock_provider = AsyncMock()
         mock_provider.remove_whitelist_address = AsyncMock(return_value={})
 
@@ -213,7 +199,6 @@ class TestWhitelistAPI:
 
     @pytest.mark.asyncio
     async def test_remove_whitelist_vault_not_found(self, client: AsyncClient):
-        """Test removing whitelist entry for non-existent vault."""
         fake_vault_id = uuid4()
 
         response = await client.delete(

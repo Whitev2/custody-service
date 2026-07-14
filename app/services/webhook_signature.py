@@ -1,11 +1,6 @@
 """
-Service for validating Fireblocks webhook signature.
-
-Fireblocks signs all webhook events using RSA-SHA512.
-Signature is passed in Fireblocks-Signature header.
-
-Documentation:
-https://developers.fireblocks.com/reference/webhooks-gettingstarted-validatingevents
+Проверка подписи вебхуков Fireblocks (RSA-SHA512, header Fireblocks-Signature).
+docs: https://developers.fireblocks.com/reference/webhooks-gettingstarted-validatingevents
 """
 
 import base64
@@ -65,21 +60,13 @@ IwIDAQAB
 
 
 class WebhookSignatureValidator:
-    """Fireblocks webhook signature validator."""
-
     def __init__(self, environment: str = "sandbox"):
-        """
-        Initialize validator.
-
-        Args:
-            environment: Fireblocks environment ('sandbox', 'us', 'eu')
-        """
+        # environment: 'sandbox' | 'us' | 'eu'
         self.environment = environment
         self._public_key = self._load_public_key(environment)
 
     @staticmethod
     def _load_public_key(environment: str):
-        """Load public key for specified environment."""
         key_pem = {
             "sandbox": FIREBLOCKS_PUBLIC_KEY_SANDBOX,
             "us": FIREBLOCKS_PUBLIC_KEY_US,
@@ -92,23 +79,12 @@ class WebhookSignatureValidator:
 
     def verify_signature(self, body: bytes, signature: str) -> bool:
         """
-        Verify webhook signature.
-
-        Fireblocks uses:
-        Fireblocks-Signature: Base64(RSA512(_WEBHOOK_PRIVATE_KEY_, SHA512(eventBody)))
-
-        Args:
-            body: Request body in bytes
-            signature: Signature from Fireblocks-Signature header
-
-        Returns:
-            True if signature is valid, False otherwise
+        Проверка подписи вебхука.
+        Fireblocks-Signature: Base64(RSA512(privkey, SHA512(eventBody))).
         """
         try:
-            # Decode signature from Base64
             signature_bytes = base64.b64decode(signature)
 
-            # Verify signature
             self._public_key.verify(
                 signature_bytes,
                 body,
@@ -128,11 +104,6 @@ class WebhookSignatureValidator:
 
 
 def get_webhook_validator() -> WebhookSignatureValidator:
-    """
-    Get webhook signature validator.
-
-    Environment is determined from FIREBLOCKS_ENVIRONMENT variable.
-    Defaults to sandbox.
-    """
+    """Валидатор по env FIREBLOCKS_ENVIRONMENT (default sandbox)."""
     environment = getenv("FIREBLOCKS_ENVIRONMENT", "sandbox").lower()
     return WebhookSignatureValidator(environment)

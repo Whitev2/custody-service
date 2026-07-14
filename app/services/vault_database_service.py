@@ -25,15 +25,7 @@ class VaultDatabaseService:
         self._vault_token_accessor = None
 
     def get_credentials(self, force_refresh: bool = False) -> dict[str, str]:
-        """
-        Получить статические credentials из Vault.
-
-        Args:
-            force_refresh: Принудительно запросить обновленные credentials
-
-        Returns:
-            dict: {'username': '<static_role_name>', 'password': '<rotated_password>'}
-        """
+        """Статические credentials из Vault (username/password)."""
         current_accessor = None
         try:
             current_accessor = vault_client.get_token_accessor()
@@ -57,7 +49,6 @@ class VaultDatabaseService:
         return self._credentials.copy()
 
     def _fetch_credentials(self, retry_auth: bool = True):
-        """Получить статические credentials из Vault Database Secrets Engine"""
         try:
             # Используем static-creds вместо creds для статических ролей
             response = self.client.read(f"database/static-creds/{self.role_name}")
@@ -110,7 +101,7 @@ class VaultDatabaseService:
             raise
 
     def get_credentials_info(self) -> dict:
-        """Получить информацию о текущих статических credentials для мониторинга"""
+        """Инфо о текущих credentials для мониторинга."""
         if not self._credentials:
             return {"status": "no_credentials"}
 
@@ -127,15 +118,7 @@ class VaultDatabaseService:
         }
 
     def should_refresh_credentials(self, threshold_seconds: int = 300) -> bool:
-        """
-        Проверить, нужно ли обновить credentials (для проактивного обновления).
-
-        Args:
-            threshold_seconds: Порог в секундах до ротации (по умолчанию 5 минут)
-
-        Returns:
-            True если приближается время ротации или credentials устарели
-        """
+        """Пора ли обновлять creds - приближается ротация или устарели."""
         if not self._last_rotation_time or not self._rotation_period:
             return True
 

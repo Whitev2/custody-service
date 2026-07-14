@@ -1,9 +1,3 @@
-"""
-Integration tests for custody_v2.
-
-These tests verify the full flow from API to database.
-"""
-
 import pytest
 from decimal import Decimal
 from uuid import uuid4
@@ -16,7 +10,6 @@ from app.models import VaultModel, AssetModel, WalletModel, TransactionModel
 
 
 class TestVaultWorkflow:
-    """Integration tests for complete vault workflow."""
 
     @pytest.mark.asyncio
     async def test_full_vault_lifecycle(
@@ -25,8 +18,7 @@ class TestVaultWorkflow:
         test_session: AsyncSession,
         test_asset: AssetModel,
     ):
-        """Test complete vault lifecycle: create -> add asset -> get info."""
-        # 1. Create vault
+        # create -> add asset -> get info
         mock_provider = AsyncMock()
         mock_provider.create_vault = AsyncMock(
             return_value={
@@ -64,20 +56,17 @@ class TestVaultWorkflow:
         data = response.json()
         vault_id = data["vault_id"]
 
-        # 2. Get vault info
         response = await client.get(f"/vault/{vault_id}/info")
         assert response.status_code == 200
         info = response.json()
         assert info["name"] == "LIFECYCLE_VAULT"
 
-        # 3. List vaults
         response = await client.get("/vault/list")
         assert response.status_code == 200
         assert any(v["vault_id"] == vault_id for v in response.json()["vaults"])
 
 
 class TestTransferWorkflow:
-    """Integration tests for transfer workflow."""
 
     @pytest.mark.asyncio
     async def test_internal_transfer_full_flow(
@@ -88,8 +77,6 @@ class TestTransferWorkflow:
         test_asset: AssetModel,
         test_wallet: WalletModel,
     ):
-        """Test complete internal transfer flow."""
-        # Create destination vault and wallet
         dest_vault = VaultModel(
             id=uuid4(),
             provider_vault_id=f"fb_vault_dest_{uuid4().hex[:8]}",
@@ -110,7 +97,6 @@ class TestTransferWorkflow:
         test_session.add(dest_wallet)
         await test_session.commit()
 
-        # Mock provider
         mock_provider = AsyncMock()
         mock_provider.create_transaction = AsyncMock(
             return_value={
@@ -144,7 +130,6 @@ class TestTransferWorkflow:
 
 
 class TestAssetWorkflow:
-    """Integration tests for asset workflow."""
 
     @pytest.mark.asyncio
     async def test_get_asset_addresses_across_vaults(
@@ -153,8 +138,6 @@ class TestAssetWorkflow:
         test_session: AsyncSession,
         test_asset: AssetModel,
     ):
-        """Test getting all addresses for an asset across multiple vaults."""
-        # Create multiple vaults with same asset
         wallets = []
         for i in range(3):
             vault = VaultModel(
@@ -179,7 +162,6 @@ class TestAssetWorkflow:
 
         await test_session.commit()
 
-        # Get all addresses for asset
         response = await client.get(f"/asset/{test_asset.id}/addresses")
 
         assert response.status_code == 200
@@ -195,8 +177,6 @@ class TestAssetWorkflow:
         test_wallet: WalletModel,
         test_asset: AssetModel,
     ):
-        """Test getting transaction history for an asset."""
-        # Create multiple transactions
         for i in range(5):
             tx = TransactionModel(
                 id=uuid4(),
@@ -216,7 +196,6 @@ class TestAssetWorkflow:
 
         await test_session.commit()
 
-        # Get history
         response = await client.get(f"/asset/{test_asset.id}/history")
 
         assert response.status_code == 200
@@ -225,11 +204,9 @@ class TestAssetWorkflow:
 
 
 class TestHealthEndpoint:
-    """Test health endpoint."""
 
     @pytest.mark.asyncio
     async def test_health_returns_ok(self, client: AsyncClient):
-        """Test health endpoint returns healthy."""
         response = await client.get("/health")
 
         assert response.status_code == 200

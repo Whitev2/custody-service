@@ -1,7 +1,3 @@
-"""
-Tests for webhook handling.
-"""
-
 import pytest
 from decimal import Decimal
 
@@ -18,10 +14,8 @@ from app.dao.webhook.parse import parse_amount, parse_amount_usd, parse_net_amou
 
 
 class TestWebhookParsing:
-    """Tests for webhook data parsing."""
 
     def test_parse_amount_from_amount_info(self):
-        """Test parsing amount from amountInfo."""
         tx = TransactionDetailsSchema(
             id="fb_tx_123",
             status="COMPLETED",
@@ -32,7 +26,6 @@ class TestWebhookParsing:
         assert result == Decimal("100.5")
 
     def test_parse_amount_from_deprecated_field(self):
-        """Test parsing amount from deprecated field."""
         tx = TransactionDetailsSchema(
             id="fb_tx_123",
             status="COMPLETED",
@@ -43,7 +36,6 @@ class TestWebhookParsing:
         assert result == Decimal("50.25")
 
     def test_parse_amount_usd(self):
-        """Test parsing USD amount."""
         tx = TransactionDetailsSchema(
             id="fb_tx_123",
             status="COMPLETED",
@@ -54,7 +46,6 @@ class TestWebhookParsing:
         assert result == Decimal("100.5")
 
     def test_parse_amount_usd_none(self):
-        """Test parsing USD amount when not available."""
         tx = TransactionDetailsSchema(
             id="fb_tx_123",
             status="COMPLETED",
@@ -64,7 +55,6 @@ class TestWebhookParsing:
         assert result is None
 
     def test_parse_net_amount(self):
-        """Test parsing net amount."""
         tx = TransactionDetailsSchema(
             id="fb_tx_123",
             status="COMPLETED",
@@ -76,10 +66,8 @@ class TestWebhookParsing:
 
 
 class TestFireblocksWebhookPayload:
-    """Tests for FireblocksWebhookPayloadSchema."""
 
     def test_is_incoming_deposit_true(self):
-        """Test detection of incoming deposit."""
         payload = FireblocksWebhookPayloadSchema(
             id="notif_123",
             workspaceId="ws_123",
@@ -97,7 +85,6 @@ class TestFireblocksWebhookPayload:
         assert payload.is_incoming_deposit() is True
 
     def test_is_incoming_deposit_false_internal(self):
-        """Test internal transfer is not incoming deposit."""
         payload = FireblocksWebhookPayloadSchema(
             id="notif_123",
             workspaceId="ws_123",
@@ -115,7 +102,6 @@ class TestFireblocksWebhookPayload:
         assert payload.is_incoming_deposit() is False
 
     def test_is_incoming_deposit_false_not_transaction(self):
-        """Test non-transaction event."""
         payload = FireblocksWebhookPayloadSchema(
             id="notif_123",
             workspaceId="ws_123",
@@ -127,7 +113,6 @@ class TestFireblocksWebhookPayload:
         assert payload.is_incoming_deposit() is False
 
     def test_is_completed_transaction(self):
-        """Test completed transaction detection."""
         payload = FireblocksWebhookPayloadSchema(
             id="notif_123",
             workspaceId="ws_123",
@@ -143,7 +128,6 @@ class TestFireblocksWebhookPayload:
         assert payload.is_completed_transaction() is True
 
     def test_get_transaction_details(self):
-        """Test extracting transaction details."""
         payload = FireblocksWebhookPayloadSchema(
             id="notif_123",
             workspaceId="ws_123",
@@ -165,10 +149,8 @@ class TestFireblocksWebhookPayload:
 
 
 class TestSimpleWebhookPayload:
-    """Tests for simple WebhookPayload schema."""
 
     def test_create_webhook_payload(self):
-        """Test creating simple webhook payload."""
         payload = WebhookPayload(
             type="TRANSACTION_CREATED",
             data={"id": "tx_123", "status": "PENDING"},
@@ -178,7 +160,6 @@ class TestSimpleWebhookPayload:
         assert payload.data["id"] == "tx_123"
 
     def test_webhook_payload_empty_data(self):
-        """Test webhook payload with empty data."""
         payload = WebhookPayload(
             type="VAULT_CREATED",
             data={},
@@ -189,7 +170,6 @@ class TestSimpleWebhookPayload:
 
 
 class TestWebhookBalanceUpdate:
-    """Tests for balance updates from webhooks."""
 
     @pytest.mark.asyncio
     async def test_balance_increased_on_deposit(
@@ -197,11 +177,9 @@ class TestWebhookBalanceUpdate:
         test_session: AsyncSession,
         test_wallet: WalletModel,
     ):
-        """Test wallet balance increases on deposit completion."""
         initial_balance = test_wallet.balance
         deposit_amount = Decimal("25.5")
 
-        # Update balance
         test_wallet.balance = initial_balance + deposit_amount
         await test_session.commit()
         await test_session.refresh(test_wallet)
@@ -214,11 +192,9 @@ class TestWebhookBalanceUpdate:
         test_session: AsyncSession,
         test_wallet: WalletModel,
     ):
-        """Test wallet balance decreases on withdrawal completion."""
         initial_balance = test_wallet.balance
         withdrawal_amount = Decimal("10.0")
 
-        # Update balance
         test_wallet.balance = initial_balance - withdrawal_amount
         await test_session.commit()
         await test_session.refresh(test_wallet)
@@ -227,7 +203,6 @@ class TestWebhookBalanceUpdate:
 
 
 class TestWebhookVaultAccountResolution:
-    """Tests for vault account resolution from webhooks."""
 
     @pytest.mark.asyncio
     async def test_resolve_vault_by_provider_id(
@@ -235,7 +210,6 @@ class TestWebhookVaultAccountResolution:
         test_session: AsyncSession,
         test_vault: VaultModel,
     ):
-        """Test resolving vault by provider ID."""
         result = await test_session.execute(
             select(VaultModel).where(
                 VaultModel.provider_vault_id == test_vault.provider_vault_id
@@ -252,7 +226,6 @@ class TestWebhookVaultAccountResolution:
         test_session: AsyncSession,
         test_wallet: WalletModel,
     ):
-        """Test resolving wallet by address."""
         result = await test_session.execute(
             select(WalletModel).where(WalletModel.address == test_wallet.address)
         )

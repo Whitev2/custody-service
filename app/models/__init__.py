@@ -1,5 +1,3 @@
-"""Models package."""
-
 from .base import Base
 from .vault import VaultModel
 from .asset import AssetModel
