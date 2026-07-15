@@ -11,9 +11,14 @@ from app.config import log
 
 
 async def _resolve_fireblocks_id(asset: AssetModel) -> str:
-    from app.services.custody.fireblocks.resolver import resolve_fireblocks_asset
-    
-    fb_id = await resolve_fireblocks_asset(asset)
+    # Резолвим через провайдера (инъектируемый) — единая точка обращения к custody.
+    provider = get_provider()
+    fb_asset = await provider.find_asset_by_contract_or_currency(
+        currency=asset.symbol,
+        contract_address=asset.contract_address,
+        is_testnet=asset.testnet is not None,
+    )
+    fb_id = fb_asset.get("id") if fb_asset else None
     if not fb_id:
         raise ValueError(
             f"Cannot resolve Fireblocks ID for {asset.symbol} on {asset.blockchain}"

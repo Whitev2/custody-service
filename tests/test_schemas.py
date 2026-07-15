@@ -1,4 +1,5 @@
 from datetime import datetime
+from decimal import Decimal
 from uuid import uuid4
 
 
@@ -102,10 +103,15 @@ class TestTransferSchemas:
         from app.schemas.transfer import InternalTransferRequest
 
         request = InternalTransferRequest(
+            request_id="req_internal_1",
+            blockchain="TRON",
+            asset="USDT",
             from_vault_id=uuid4(),
             to_vault_id=uuid4(),
             asset_id=uuid4(),
+            contract_address="TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t",
             amount="50.0",
+            amount_usd=Decimal("50.0"),
             note="Test transfer",
         )
 
@@ -116,10 +122,13 @@ class TestTransferSchemas:
         from app.schemas.transfer import ExternalTransferRequest
 
         request = ExternalTransferRequest(
-            from_vault_id=uuid4(),
-            asset_id=uuid4(),
+            request_id="req_external_1",
+            blockchain="TRON",
+            asset="USDT",
             to_address="TExternalAddress123456789012345678",
+            contract_address="TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t",
             amount="25.0",
+            amount_usd=Decimal("25.0"),
         )
 
         assert request.to_address == "TExternalAddress123456789012345678"
@@ -130,10 +139,15 @@ class TestTransferSchemas:
 
         # amount - строка, валидация лояльная: "-10.0" проходит
         request = InternalTransferRequest(
+            request_id="req_internal_neg",
+            blockchain="TRON",
+            asset="USDT",
             from_vault_id=uuid4(),
             to_vault_id=uuid4(),
             asset_id=uuid4(),
+            contract_address="TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t",
             amount="-10.0",
+            amount_usd=Decimal("-10.0"),
         )
         assert request.amount == "-10.0"
 
@@ -142,12 +156,14 @@ class TestTransferSchemas:
 
         response = TransferResponse(
             transfer_id=uuid4(),
+            request_id="req_123",
             provider_tx_id="fb_tx_123",
-            from_vault_id=uuid4(),
-            to_vault_id=uuid4(),
-            to_address=None,
-            asset_id=uuid4(),
+            to_vault_id=str(uuid4()),
+            destination_address="TDestAddress123456789012345678901",
+            asset="USDT",
+            blockchain="TRON",
             amount="50.0",
+            amount_usd=Decimal("50.0"),
             status="SUBMITTED",
             is_internal=True,
             created_at=datetime.now(),

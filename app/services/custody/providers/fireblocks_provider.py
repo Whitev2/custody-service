@@ -6,7 +6,15 @@ from app.services.custody.fireblocks import FireblocksService
 
 class FireblocksProvider(BaseProvider):
     def __init__(self):
-        self._service = FireblocksService()
+        # Ленивая инициализация: сам сервис (и требование API-ключей) нужен только
+        # при реальных вызовах к Fireblocks, а не при создании обёртки-провайдера.
+        self.__service: FireblocksService | None = None
+
+    @property
+    def _service(self) -> FireblocksService:
+        if self.__service is None:
+            self.__service = FireblocksService()
+        return self.__service
 
     @property
     def provider_name(self) -> str:

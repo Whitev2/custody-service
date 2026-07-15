@@ -30,7 +30,7 @@ class TestVaultAPI:
         mock_provider.add_whitelist_address = AsyncMock(return_value={"id": "wl_123"})
 
         with patch(
-            "app.services.provider_factory.get_provider", return_value=mock_provider
+            "app.services.custody.factory.get_provider", return_value=mock_provider
         ):
             with patch("app.dao.vault.get_provider", return_value=mock_provider):
                 with patch("app.dao.asset.get_provider", return_value=mock_provider):
@@ -66,7 +66,7 @@ class TestVaultAPI:
         )
 
         with patch(
-            "app.services.provider_factory.get_provider", return_value=mock_provider
+            "app.services.custody.factory.get_provider", return_value=mock_provider
         ):
             with patch("app.dao.vault.get_provider", return_value=mock_provider):
                 response = await client.post(
@@ -145,7 +145,7 @@ class TestVaultAPI:
         )
 
         with patch(
-            "app.services.provider_factory.get_provider", return_value=mock_provider
+            "app.services.custody.factory.get_provider", return_value=mock_provider
         ):
             with patch("app.dao.vault.get_provider", return_value=mock_provider):
                 response = await client.post(

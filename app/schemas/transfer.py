@@ -6,35 +6,59 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class ExternalTransferRequest(BaseModel):
-    # payout наружу, требует апрув в Workflow. PENDING_APPROVAL -> резерв после approve
+    # payout наружу. Два режима:
+    #  1) явный источник: from_vault_id + asset_id -> прямой перевод с проверкой баланса;
+    #  2) авто-подбор HOT-кошелька: требует апрув в Workflow (PENDING_APPROVAL / PENDING_BALANCE).
 
-    request_id: str = Field(..., description="Unique request ID for tracing")
-    blockchain: str = Field(..., description="Blockchain (ethereum, tron, bsc)")
-    asset: str = Field(..., description="Asset symbol (ETH, USDT, TRX)")
     to_address: str = Field(..., description="Destination address")
     amount: str = Field(..., description="Amount to transfer")
-    contract_address: str | None = Field(
-        ..., description="Token contract address (null for native)"
+    from_vault_id: UUID | None = Field(
+        None, description="Source vault ID (explicit-source mode)"
     )
-    amount_usd: Decimal = Field(..., description="Amount in USD")
+    asset_id: UUID | None = Field(
+        None, description="Asset ID (explicit-source mode)"
+    )
+    workflow_id: str | None = Field(None, description="External workflow ID")
+    request_id: str | None = Field(
+        None, description="Unique request ID for tracing (auto-generated if omitted)"
+    )
+    blockchain: str | None = Field(
+        None, description="Blockchain (derived from asset if omitted)"
+    )
+    asset: str | None = Field(
+        None, description="Asset symbol (derived from asset if omitted)"
+    )
+    contract_address: str | None = Field(
+        None, description="Token contract address (null for native)"
+    )
+    amount_usd: Decimal | None = Field(None, description="Amount in USD")
     destination_tag: str | None = Field(None, description="Memo/tag for XRP, XLM")
     note: str | None = Field(None, description="Optional note")
 
 
 class InternalTransferRequest(BaseModel):
-    # whitelist only, без апрува. Резерв сразу, шлём в Fireblocks сразу
+    # whitelist only, без апрува. Резерв сразу, шлём в Fireblocks сразу.
+    # Источник задаётся явно через from_vault_id + asset_id; blockchain/asset/
+    # contract_address/amount_usd необязательны и доопределяются из ассета.
 
-    request_id: str = Field(..., description="Unique request ID for tracing")
-    blockchain: str = Field(..., description="Blockchain (ethereum, tron, bsc)")
-    asset: str = Field(..., description="Asset symbol (ETH, USDT, TRX)")
     from_vault_id: UUID = Field(..., description="Source vault ID")
+    asset_id: UUID = Field(..., description="Asset ID (source asset in vault)")
+    amount: str = Field(..., description="Amount to transfer")
     to_vault_id: UUID | None = Field(None, description="Destination vault ID")
     to_address: str | None = Field(None, description="Destination address (whitelist)")
-    amount: str = Field(..., description="Amount to transfer")
-    contract_address: str | None = Field(
-        ..., description="Token contract address (null for native)"
+    request_id: str | None = Field(
+        None, description="Unique request ID for tracing (auto-generated if omitted)"
     )
-    amount_usd: Decimal = Field(..., description="Amount in USD")
+    blockchain: str | None = Field(
+        None, description="Blockchain (derived from asset if omitted)"
+    )
+    asset: str | None = Field(
+        None, description="Asset symbol (derived from asset if omitted)"
+    )
+    contract_address: str | None = Field(
+        None, description="Token contract address (null for native)"
+    )
+    amount_usd: Decimal | None = Field(None, description="Amount in USD")
     destination_tag: str | None = Field(None, description="Memo/tag for XRP, XLM")
     note: str | None = Field(None, description="Optional note")
 
@@ -68,11 +92,13 @@ class TransferResponse(BaseModel):
     is_internal: bool = Field(..., description="Is internal (whitelist) transfer")
 
     # Source
-    source_vault_id: str | None = Field(None, description="Source vault ID")
+    from_vault_id: str | None = Field(None, description="Source vault DB ID")
+    source_vault_id: str | None = Field(None, description="Source provider vault ID")
     source_address: str | None = Field(None, description="Source wallet address")
 
     # Destination
     destination_address: str = Field(..., description="Destination address")
+    to_address: str | None = Field(None, description="Destination address (alias)")
     destination_tag: str | None = Field(None, description="Memo/tag")
     to_vault_id: str | None = Field(None, description="Destination vault ID (internal)")
 

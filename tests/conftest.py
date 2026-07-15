@@ -97,12 +97,13 @@ async def test_asset(test_session: AsyncSession) -> AssetModel:
     asset = AssetModel(
         id=uuid4(),
         asset="USDT_TRX_TEST",
-        currency="USDT",
+        symbol="USDT",
+        display_name="Tether USD",
         blockchain="TRON",
         network="TRC20",
         decimals=6,
         is_active=True,
-        is_testnet=True,
+        testnet="SHASTA",
     )
     test_session.add(asset)
     await test_session.commit()
@@ -115,12 +116,13 @@ async def test_asset_eth(test_session: AsyncSession) -> AssetModel:
     asset = AssetModel(
         id=uuid4(),
         asset="USDT_ERC20_TEST",
-        currency="USDT",
+        symbol="USDT",
+        display_name="Tether USD",
         blockchain="ETHEREUM",
         network="ERC20",
         decimals=6,
         is_active=True,
-        is_testnet=True,
+        testnet="SEPOLIA",
     )
     test_session.add(asset)
     await test_session.commit()

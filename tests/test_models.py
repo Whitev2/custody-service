@@ -63,12 +63,13 @@ class TestAssetModel:
         asset = AssetModel(
             id=uuid4(),
             asset="BTC_NATIVE",
-            currency="BTC",
+            symbol="BTC",
+            display_name="Bitcoin",
             blockchain="BITCOIN",
             network="NATIVE",
             decimals=8,
             is_active=True,
-            is_testnet=False,
+            testnet=None,
         )
         test_session.add(asset)
         await test_session.commit()
@@ -95,12 +96,13 @@ class TestAssetModel:
         asset = AssetModel(
             id=uuid4(),
             asset="ETH_TEST5",
-            currency="ETH",
+            symbol="ETH",
+            display_name="Ethereum",
             blockchain="ETHEREUM",
             network="SEPOLIA",
             decimals=18,
             is_active=True,
-            is_testnet=True,
+            testnet="SEPOLIA",
         )
         test_session.add(asset)
         await test_session.commit()

@@ -3,8 +3,9 @@
 import logging
 from datetime import datetime, timezone
 from decimal import Decimal
+from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -51,11 +52,13 @@ def _transfer_to_response(transfer: TransferModel) -> TransferResponse:
         request_id=transfer.request_id,
         status=transfer.status,
         is_internal=transfer.is_internal,
+        from_vault_id=str(transfer.vault_id) if transfer.vault_id else None,
         source_vault_id=(
             str(transfer.vault.provider_vault_id) if transfer.vault else None
         ),
         source_address=transfer.source_address,
         destination_address=transfer.destination_address,
+        to_address=transfer.destination_address,
         destination_tag=transfer.destination_tag,
         to_vault_id=str(transfer.to_vault_id) if transfer.to_vault_id else None,
         amount=str(transfer.amount),
@@ -70,6 +73,119 @@ def _transfer_to_response(transfer: TransferModel) -> TransferResponse:
     )
 
 
+async def _create_external_transfer_direct(
+    request: ExternalTransferRequest,
+    db: AsyncSession,
+) -> TransferResponse:
+    # явный источник: конкретный vault + asset, прямой payout с проверкой баланса
+    request_id = request.request_id or f"etr_{uuid4().hex}"
+
+    from_vault = await db.get(VaultModel, request.from_vault_id)
+    if not from_vault:
+        raise HTTPException(status_code=404, detail="Source vault not found")
+
+    asset = await db.get(AssetModel, request.asset_id)
+    if not asset:
+        raise HTTPException(status_code=404, detail="Asset not found")
+
+    if request.request_id:
+        existing = await get_transfer_by_request_id(db, request.request_id)
+        if existing:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Transfer with request_id '{request.request_id}' already exists",
+            )
+
+    stmt = select(WalletModel).where(
+        WalletModel.vault_id == request.from_vault_id,
+        WalletModel.asset_id == request.asset_id,
+    )
+    result = await db.execute(stmt)
+    from_wallet = result.scalar_one_or_none()
+    if not from_wallet:
+        raise HTTPException(status_code=404, detail="Source wallet not found")
+
+    amount = Decimal(request.amount)
+    if not from_wallet.has_sufficient_balance(amount):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Insufficient balance. Available: {from_wallet.available_balance}, Required: {amount}",
+        )
+
+    blockchain = request.blockchain or asset.blockchain
+    currency = request.asset or asset.currency
+    contract_address = (
+        request.contract_address
+        if request.contract_address is not None
+        else asset.contract_address
+    )
+    amount_usd = request.amount_usd if request.amount_usd is not None else Decimal("0")
+
+    from app.dao.transfer import reserve_balance
+
+    reserved = await reserve_balance(db, from_wallet.id, amount)
+    if not reserved:
+        raise HTTPException(
+            status_code=400,
+            detail="Failed to reserve balance (concurrent modification)",
+        )
+
+    provider = get_provider()
+    tx_data = {
+        "assetId": asset.asset,
+        "source": {"type": "VAULT_ACCOUNT", "id": from_vault.provider_vault_id},
+        "destination": {
+            "type": "ONE_TIME_ADDRESS",
+            "oneTimeAddress": {"address": request.to_address},
+        },
+        "amount": request.amount,
+        "externalTxId": request_id,
+    }
+    if request.note:
+        tx_data["note"] = request.note
+
+    fb_tx = await provider.create_transaction(tx_data)
+
+    transfer = await create_transfer(
+        db=db,
+        request_id=request_id,
+        blockchain=blockchain,
+        currency=currency,
+        destination_address=request.to_address,
+        amount=amount,
+        contract_address=contract_address,
+        amount_usd=amount_usd,
+        is_internal=False,
+        destination_tag=request.destination_tag,
+        note=request.note,
+        vault_id=from_vault.id,
+        wallet_id=from_wallet.id,
+        asset_id=asset.id,
+        source_address=from_wallet.address,
+        status=TransferStatus.SIGNING,
+    )
+
+    transfer.provider_tx_id = fb_tx["id"]
+    transfer.tx_hash = fb_tx.get("txHash")
+    if fb_tx.get("status"):
+        transfer.status = fb_tx["status"]
+
+    await db.commit()
+
+    transfer = await get_transfer_by_request_id(db, request_id)
+
+    log.info(
+        "External transfer created (explicit source) and sent to Fireblocks",
+        extra={
+            "request_id": request_id,
+            "transfer_id": str(transfer.id),
+            "provider_tx_id": fb_tx["id"],
+        },
+    )
+
+    return _transfer_to_response(transfer)
+
+
 @router.post(
     "/external/create",
     status_code=status.HTTP_202_ACCEPTED,
@@ -77,14 +193,21 @@ def _transfer_to_response(transfer: TransferModel) -> TransferResponse:
 )
 async def create_external_transfer(
     request: ExternalTransferRequest,
+    response: Response,
     db: AsyncSession = Depends(get_db),
 ) -> TransferResponse:
+    # явный источник (from_vault_id + asset_id) -> прямой перевод с проверкой баланса
+    if request.from_vault_id and request.asset_id:
+        response.status_code = status.HTTP_200_OK
+        return await _create_external_transfer_direct(request, db)
+
     # Upfront Reserve: сначала резервим баланс на HOT, потом статус.
     # есть баланс -> PENDING_APPROVAL + publish; нет -> PENDING_BALANCE, ждём в очереди (без publish)
+    request_id = request.request_id or f"etr_{uuid4().hex}"
     log.info(
         "Creating external transfer",
         extra={
-            "request_id": request.request_id,
+            "request_id": request_id,
             "amount": request.amount,
             "blockchain": request.blockchain,
             "destination": request.to_address[:20] + "...",
@@ -92,11 +215,11 @@ async def create_external_transfer(
     )
 
     try:
-        existing = await get_transfer_by_request_id(db, request.request_id)
+        existing = await get_transfer_by_request_id(db, request_id)
         if existing:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail=f"Transfer with request_id '{request.request_id}' already exists",
+                detail=f"Transfer with request_id '{request_id}' already exists",
             )
 
         # резервим баланс на HOT wallet ДО создания трансфера
@@ -121,7 +244,7 @@ async def create_external_transfer(
             log.info(
                 "Balance reserved for transfer",
                 extra={
-                    "request_id": request.request_id,
+                    "request_id": request_id,
                     "source_vault_id": source_vault_id,
                     "source_address": source_address,
                     "amount": request.amount,
@@ -131,7 +254,7 @@ async def create_external_transfer(
             # пробуем авто-активировать ассет в HOT кошельке
             log.info(
                 f"No HOT wallet for asset, trying to auto-activate: {e}",
-                extra={"request_id": request.request_id},
+                extra={"request_id": request_id},
             )
             
             asset_activated = await ensure_asset_in_hot_wallet(
@@ -156,27 +279,27 @@ async def create_external_transfer(
                     log.info(
                         "Balance reserved after auto-activation",
                         extra={
-                            "request_id": request.request_id,
+                            "request_id": request_id,
                             "source_vault_id": source_vault_id,
                         },
                     )
                 except (InsufficientBalanceError, NoHotWalletError) as retry_e:
                     log.warning(
                         f"Still no balance after activation: {retry_e}",
-                        extra={"request_id": request.request_id},
+                        extra={"request_id": request_id},
                     )
                     balance_reserved = False
             else:
                 log.warning(
                     f"Failed to auto-activate asset, transfer will wait: {e}",
-                    extra={"request_id": request.request_id},
+                    extra={"request_id": request_id},
                 )
                 balance_reserved = False
                 
         except InsufficientBalanceError as e:
             log.warning(
                 f"Insufficient balance, transfer will wait in queue: {e}",
-                extra={"request_id": request.request_id},
+                extra={"request_id": request_id},
             )
             balance_reserved = False
 
@@ -188,7 +311,7 @@ async def create_external_transfer(
 
         transfer = await create_transfer(
             db=db,
-            request_id=request.request_id,
+            request_id=request_id,
             blockchain=request.blockchain,
             currency=request.asset,
             destination_address=request.to_address,
@@ -213,7 +336,7 @@ async def create_external_transfer(
         # publish в workflow только если баланс зарезервирован
         if balance_reserved:
             published = await publish_transfer_created(
-                request_id=request.request_id,
+                request_id=request_id,
                 destination_address=request.to_address,
                 destination_tag=request.destination_tag,
                 amount=request.amount,
@@ -231,13 +354,13 @@ async def create_external_transfer(
             if not published:
                 log.warning(
                     "Failed to publish transfer.created event, but transfer was saved",
-                    extra={"request_id": request.request_id},
+                    extra={"request_id": request_id},
                 )
 
             log.info(
                 "External transfer created with PENDING_APPROVAL status",
                 extra={
-                    "request_id": request.request_id,
+                    "request_id": request_id,
                     "transfer_id": str(transfer.id),
                 },
             )
@@ -245,12 +368,12 @@ async def create_external_transfer(
             log.info(
                 "External transfer created with PENDING_BALANCE status (waiting for funds)",
                 extra={
-                    "request_id": request.request_id,
+                    "request_id": request_id,
                     "transfer_id": str(transfer.id),
                 },
             )
 
-        transfer = await get_transfer_by_request_id(db, request.request_id)
+        transfer = await get_transfer_by_request_id(db, request_id)
 
         return _transfer_to_response(transfer)
 
@@ -275,21 +398,16 @@ async def create_internal_transfer(
     db: AsyncSession = Depends(get_db),
 ) -> TransferResponse:
     # internal = whitelist only, без approval. резерв сразу + tx в Fireblocks
+    request_id = request.request_id or f"itr_{uuid4().hex}"
+
     log.info(
         "Creating internal transfer",
         extra={
-            "request_id": request.request_id,
+            "request_id": request_id,
             "from_vault_id": str(request.from_vault_id),
             "amount": request.amount,
         },
     )
-
-    existing = await get_transfer_by_request_id(db, request.request_id)
-    if existing:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f"Transfer with request_id '{request.request_id}' already exists",
-        )
 
     from_vault = await db.get(VaultModel, request.from_vault_id)
     if not from_vault:
@@ -298,6 +416,24 @@ async def create_internal_transfer(
     asset = await db.get(AssetModel, request.asset_id)
     if not asset:
         raise HTTPException(status_code=404, detail="Asset not found")
+
+    if request.request_id:
+        existing = await get_transfer_by_request_id(db, request.request_id)
+        if existing:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Transfer with request_id '{request.request_id}' already exists",
+            )
+
+    # blockchain / asset / contract_address доопределяем из ассета, если не переданы
+    blockchain = request.blockchain or asset.blockchain
+    currency = request.asset or asset.currency
+    contract_address = (
+        request.contract_address
+        if request.contract_address is not None
+        else asset.contract_address
+    )
+    amount_usd = request.amount_usd if request.amount_usd is not None else Decimal("0")
 
     stmt = select(WalletModel).where(
         WalletModel.vault_id == request.from_vault_id,
@@ -380,7 +516,7 @@ async def create_internal_transfer(
             "source": {"type": "VAULT_ACCOUNT", "id": from_vault.provider_vault_id},
             "destination": destination,
             "amount": request.amount,
-            "externalTxId": request.request_id,
+            "externalTxId": request_id,
         }
         if request.note:
             tx_data["note"] = request.note
@@ -389,19 +525,19 @@ async def create_internal_transfer(
 
         transfer = await create_transfer(
             db=db,
-            request_id=request.request_id,
-            blockchain=request.blockchain,
-            currency=request.asset,
+            request_id=request_id,
+            blockchain=blockchain,
+            currency=currency,
             destination_address=to_address,
             amount=amount,
-            contract_address=request.contract_address,
-            amount_usd=request.amount_usd,
+            contract_address=contract_address,
+            amount_usd=amount_usd,
             is_internal=True,
             destination_tag=request.destination_tag,
             note=request.note,
             vault_id=from_vault.id,
             wallet_id=from_wallet.id,
-            asset_id=None,  # Will be resolved later if needed
+            asset_id=asset.id,
             source_address=from_wallet.address,
             to_vault_id=to_vault_id,
             status=TransferStatus.SIGNING,
@@ -409,15 +545,18 @@ async def create_internal_transfer(
 
         transfer.provider_tx_id = fb_tx["id"]
         transfer.tx_hash = fb_tx.get("txHash")
+        # статус трансфера отражает статус транзакции у провайдера
+        if fb_tx.get("status"):
+            transfer.status = fb_tx["status"]
 
         await db.commit()
 
-        transfer = await get_transfer_by_request_id(db, request.request_id)
+        transfer = await get_transfer_by_request_id(db, request_id)
 
         log.info(
             "Internal transfer created and sent to Fireblocks",
             extra={
-                "request_id": request.request_id,
+                "request_id": request_id,
                 "transfer_id": str(transfer.id),
                 "provider_tx_id": fb_tx["id"],
             },
